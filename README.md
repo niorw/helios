@@ -67,25 +67,7 @@ helios send GET https://httpbin.org/get
 
 Helios TUI is organized into 4 panes with a dynamic shortcut bar at the bottom:
 
-```
-┌─[1] Navigator────┬─[2] Request ─────────────────────┐
-│ Collections      │ GET  https://httpbin.org/get     │
-│ ▼ My API         │                                  │
-│   ├─ GET users   ├─[3] Payload ─────────────────────┤
-│   ├─ POST login  │ [Params] [Headers] [Body] [Auth] │
-│                  │ Key        Value         En      │
-│ History          │ Accept     application/json  ✓   │
-│ Environments     │                                  │
-│                  ├─[4] Response ────────────────────┤
-│                  │ [ Body ] [ Headers ]             │
-│                  │ {                                │
-│                  │   "args": {},                    │
-│                  │   ...                            │
-│                  │ }                                │
-└──────────────────┴──────────────────────────────────┘
- Status 200 OK │ Time 234ms │ Size 412 bytes
- Shortcuts m+1/2/3/4 switch pane │ ↑/↓ scroll │ y copy │ ←/→ tab
-```
+![Helios TUI Screenshot](assets/screenshot1.png)
 
 ### Pane Switching
 
