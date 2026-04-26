@@ -7,6 +7,8 @@
 
 Helios is a terminal-based HTTP client inspired by Postman, rebuilt for speed and keyboard-driven workflows. Designed with a neon-themed TUI that feels at home in any macOS terminal — whether you use **Terminal.app**, **iTerm2**, **Warp**, or **Kitty**.
 
+![Helios TUI Screenshot](assets/screenshot1.png)
+
 ---
 
 ## Why Helios on Mac?
@@ -66,8 +68,6 @@ helios send GET https://httpbin.org/get
 ## TUI Overview
 
 Helios TUI is organized into 4 panes with a dynamic shortcut bar at the bottom:
-
-![Helios TUI Screenshot](assets/screenshot1.png)
 
 ### Pane Switching
 
