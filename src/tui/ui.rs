@@ -1,6 +1,7 @@
 use crate::config;
 use crate::models::{Auth, HttpMethod};
 use crate::tui::app::{ActivePane, App, DialogType, EditingField, InputMode, RequestTab, SidebarTab};
+use chrono::{DateTime, Local};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
@@ -835,6 +836,8 @@ fn draw_edit_popup(f: &mut Frame, app: &App, area: Rect) {
 fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
     let popup_area = if app.dialog_type == DialogType::DeleteConfirm {
         centered_fixed(32, 7, area)
+    } else if app.dialog_type == DialogType::History {
+        centered_rect(80, 70, area)  // History dialog is larger
     } else {
         centered_rect(60, 25, area)
     };
@@ -843,6 +846,8 @@ fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
         DialogType::NewCollection => " New Collection ",
         DialogType::DeleteConfirm => "",
         DialogType::RequestName => " Request Name ",
+        DialogType::History => " 历史记录 (History) ",
+        DialogType::HistorySearch => " 搜索历史 ",
         DialogType::None => return,
     };
     let block = Block::default()
@@ -917,6 +922,82 @@ fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    // History dialog
+    if app.dialog_type == DialogType::History {
+        let entries = app.history_manager.get_all_entries();
+        if entries.is_empty() {
+            let text = Paragraph::new("No history entries yet.\n\nPress Enter or Esc to close.")
+                .style(Style::default().fg(TEXT).bg(BG))
+                .alignment(Alignment::Center);
+            f.render_widget(text, inner);
+        } else {
+            // Create a table-like view for history entries
+            let rows: Vec<_> = entries
+                .iter()
+                .enumerate()
+                .map(|(idx, entry)| {
+                    let is_selected = idx == app.history_selected;
+                    let method_color = match entry.request.method {
+                        HttpMethod::GET => Color::Rgb(100, 180, 255),
+                        HttpMethod::POST => Color::Rgb(100, 255, 150),
+                        HttpMethod::PUT => Color::Rgb(255, 200, 100),
+                        HttpMethod::DELETE => Color::Rgb(255, 100, 100),
+                        HttpMethod::PATCH => Color::Rgb(200, 100, 255),
+                        _ => TEXT,
+                    };
+                    let status_str = entry
+                        .response_status
+                        .map(|s| format!("{}", s))
+                        .unwrap_or_else(|| "-".to_string());
+                    let status_color = entry.response_status.map_or(TEXT_DIM, |s| {
+                        if s >= 200 && s < 300 {
+                            Color::Rgb(100, 255, 150)
+                        } else if s >= 400 {
+                            Color::Rgb(255, 100, 100)
+                        } else {
+                            Color::Rgb(255, 200, 100)
+                        }
+                    });
+                    let time_str = format_timestamp(entry.timestamp);
+                    let duration_str = entry
+                        .duration_ms
+                        .map(|d| format!("{}ms", d))
+                        .unwrap_or_else(|| "-".to_string());
+
+                    let style = if is_selected {
+                        Style::default()
+                            .bg(BORDER_ACTIVE)
+                            .fg(Color::Black)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(TEXT)
+                    };
+
+                    let line = Line::from(vec![
+                        Span::raw(format!("{:2}  ", idx + 1)),
+                        Span::styled(format!("{:6} ", entry.request.method), style.fg(method_color)),
+                        Span::raw(crate::utils::truncate(&entry.request.url, 40)),
+                        Span::raw("  "),
+                        Span::styled(status_str, style.fg(status_color)),
+                        Span::raw("  "),
+                        Span::styled(duration_str, style.fg(TEXT_DIM)),
+                        Span::raw("  "),
+                        Span::styled(time_str, style.fg(TEXT_DIM)),
+                    ]);
+                    ListItem::new(line).style(style)
+                })
+                .collect();
+
+            let list = List::new(rows).block(
+                Block::default()
+                    .borders(Borders::NONE)
+                    .style(Style::default().bg(BG)),
+            );
+            f.render_widget(list, inner);
+        }
+        return;
+    }
+
     // Text-input dialogs
     let before = &app.dialog_buffer[..app.dialog_cursor.min(app.dialog_buffer.len())];
     let after = &app.dialog_buffer[app.dialog_cursor.min(app.dialog_buffer.len())..];
@@ -977,4 +1058,22 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+fn format_timestamp(timestamp: DateTime<Local>) -> String {
+    use chrono::Local;
+
+    let now = Local::now();
+    let diff = now.signed_duration_since(timestamp);
+    let diff_secs = diff.num_seconds();
+
+    if diff_secs < 60 {
+        "just now".to_string()
+    } else if diff_secs < 3600 {
+        format!("{}m ago", diff_secs / 60)
+    } else if diff_secs < 86400 {
+        format!("{}h ago", diff_secs / 3600)
+    } else {
+        format!("{}d ago", diff_secs / 86400)
+    }
 }
