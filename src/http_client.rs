@@ -126,3 +126,72 @@ pub fn parse_headers(raw: &[String]) -> Vec<KeyValue> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_headers_simple() {
+        let raw = vec!["Content-Type: application/json".to_string()];
+        let headers = parse_headers(&raw);
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].key, "Content-Type");
+        assert_eq!(headers[0].value, "application/json");
+        assert!(headers[0].enabled);
+    }
+
+    #[test]
+    fn test_parse_headers_multiple() {
+        let raw = vec![
+            "Content-Type: application/json".to_string(),
+            "Authorization: Bearer token123".to_string(),
+            "X-Custom-Header: value".to_string(),
+        ];
+        let headers = parse_headers(&raw);
+        assert_eq!(headers.len(), 3);
+        assert_eq!(headers[1].key, "Authorization");
+        assert_eq!(headers[1].value, "Bearer token123");
+    }
+
+    #[test]
+    fn test_parse_headers_empty() {
+        let raw: Vec<String> = vec![];
+        let headers = parse_headers(&raw);
+        assert!(headers.is_empty());
+    }
+
+    #[test]
+    fn test_parse_headers_with_spaces() {
+        let raw = vec!["  Content-Type  :  application/json  ".to_string()];
+        let headers = parse_headers(&raw);
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].key, "Content-Type");
+        assert_eq!(headers[0].value, "application/json");
+    }
+
+    #[test]
+    fn test_parse_headers_value_with_colon() {
+        let raw = vec!["Authorization: Basic: dXNlcjpwYXNz".to_string()];
+        let headers = parse_headers(&raw);
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].key, "Authorization");
+        assert_eq!(headers[0].value, "Basic: dXNlcjpwYXNz");
+    }
+
+    #[test]
+    fn test_parse_headers_missing_colon() {
+        let raw = vec!["InvalidHeader".to_string()];
+        let headers = parse_headers(&raw);
+        assert!(headers.is_empty());
+    }
+
+    #[test]
+    fn test_parse_headers_empty_value() {
+        let raw = vec!["X-Empty-Value:".to_string()];
+        let headers = parse_headers(&raw);
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].key, "X-Empty-Value");
+        assert_eq!(headers[0].value, "");
+    }
+}
