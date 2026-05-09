@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod export_import;
+mod history;
 mod http_client;
 mod models;
 mod storage;

@@ -21,7 +21,7 @@ impl std::fmt::Display for HttpMethod {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct KeyValue {
     pub key: String,
     pub value: String,
@@ -63,7 +63,7 @@ pub enum Auth {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct Request {
     pub id: String,
     pub name: String,
