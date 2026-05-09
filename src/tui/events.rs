@@ -63,7 +63,18 @@ fn handle_normal(app: &mut App, key: event::KeyEvent) {
         }
         Action::NewRequest => app.new_request(),
         Action::ShowHelp => {
-            app.set_status("Shortcuts: Tab=focus | x=prefix | u=url | Enter=send | n=name | d=del | e=edit | v=edit value | i=new req | f=new coll | Ctrl+S=save | Ctrl+E=export | ?=help");
+            app.set_status("Shortcuts: Tab=focus | x=prefix | u=url | Enter=send | n=name | d=del | e=edit | v=edit value | i=new req | f=new coll | Ctrl+S=save | Ctrl+E=export | Ctrl+R=history | ?=help");
+        }
+        Action::ShowHistory => {
+            if app.history_manager.get_all_entries().is_empty() {
+                app.set_status("No history entries yet. Send some requests first!");
+            } else {
+                app.open_dialog(DialogType::History, "历史记录 (j/k 选择, Enter 加载, Esc 取消):");
+                app.history_selected = 0;
+            }
+        }
+        Action::ShowBookmarks => {
+            app.set_status("Bookmarks feature coming soon!");
         }
 
         // Sidebar
@@ -245,10 +256,27 @@ fn handle_editing(app: &mut App, key: event::KeyEvent) {
 }
 
 fn handle_dialog(app: &mut App, key: event::KeyEvent) {
-    // Choice dialogs (DeleteConfirm) use ←/→ to select, Enter to confirm
-    if app.dialog_type == DialogType::DeleteConfirm {
+    // Choice dialogs (DeleteConfirm, History) use ←/→ to select, Enter to confirm
+    if app.dialog_type == DialogType::DeleteConfirm
+        || app.dialog_type == DialogType::History
+    {
         match key.code {
             KeyCode::Enter => {
+                if app.dialog_type == DialogType::History {
+                    // Load selected history entry into current request
+                    let entries = app.history_manager.get_all_entries();
+                    if app.history_selected < entries.len() {
+                        let entry = &entries[app.history_selected];
+                        app.current_request = entry.request.clone();
+                        app.set_status(format!(
+                            "Loaded history: {} {}",
+                            entry.request.method, entry.request.url
+                        ));
+                    }
+                    app.close_dialog();
+                    app.history_selected = 0;
+                    return;
+                }
                 if app.dialog_option_selected {
                     app.close_dialog();
                     app.execute_pending_delete();
@@ -260,8 +288,29 @@ fn handle_dialog(app: &mut App, key: event::KeyEvent) {
             }
             KeyCode::Esc => {
                 app.close_dialog();
-                app.pending_delete = None;
-                app.set_status("Delete cancelled".to_string());
+                if app.dialog_type == DialogType::History {
+                    app.history_selected = 0;
+                } else {
+                    app.pending_delete = None;
+                    app.set_status("Delete cancelled".to_string());
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if app.dialog_type == DialogType::History && app.history_selected > 0 {
+                    app.history_selected -= 1;
+                } else {
+                    app.dialog_option_selected = true;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if app.dialog_type == DialogType::History {
+                    let entries = app.history_manager.get_all_entries();
+                    if app.history_selected < entries.len().saturating_sub(1) {
+                        app.history_selected += 1;
+                    }
+                } else {
+                    app.dialog_option_selected = false;
+                }
             }
             KeyCode::Left => app.dialog_option_selected = true,
             KeyCode::Right => app.dialog_option_selected = false,

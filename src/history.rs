@@ -1,6 +1,6 @@
 use crate::models::{HistoryItem, Request, Response};
 use anyhow::Result;
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -12,7 +12,7 @@ pub const HISTORY_FILE_NAME: &str = "history.json";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HistoryEntry {
     pub id: String,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Local>,
     pub request: Request,
     pub response_status: Option<u16>,
     pub response_size: Option<usize>,
@@ -23,7 +23,7 @@ impl HistoryEntry {
     pub fn new(request: Request) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
-            timestamp: Utc::now(),
+            timestamp: Local::now(),
             request,
             response_status: None,
             response_size: None,
@@ -132,6 +132,11 @@ impl HistoryManager {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+
+    /// Get all entries (clone for UI access)
+    pub fn get_all_entries(&self) -> Vec<HistoryEntry> {
+        self.entries.clone()
+    }
 }
 
 /// History storage with file persistence
@@ -170,7 +175,7 @@ impl HistoryStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{HttpMethod, KeyValue};
+    use crate::models::{HttpMethod};
 
     fn create_test_request(url: &str, method: HttpMethod) -> Request {
         Request::new("Test", method, url)

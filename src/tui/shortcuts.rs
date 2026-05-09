@@ -15,6 +15,8 @@ pub enum Action {
     NewCollection,
     NewRequest,
     ShowHelp,
+    ShowHistory,       // Ctrl+R 显示历史记录
+    ShowBookmarks,     // Ctrl+S 书签/收藏夹
 
     // Sidebar
     SidebarNext,
@@ -122,14 +124,14 @@ fn parse_global(key: KeyEvent) -> Action {
         }
         KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
         KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::SaveRequest,
-        KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::ExportCollection,
-        // NewCollection and NewRequest moved to Sidebar-only shortcuts (f / i)
+        KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Action::ExportCollection
+        }
+        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::ShowHistory,
         KeyCode::Char('?') => Action::ShowHelp,
         _ => Action::None,
     }
 }
-
-/// Fallback when prefix mode receives an unrecognised key.
 fn parse_normal(
     key: KeyEvent,
     active_pane: ActivePane,

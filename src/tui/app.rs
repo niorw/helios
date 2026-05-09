@@ -3,6 +3,7 @@ use crate::models::{
     Response,
 };
 use crate::storage::Storage;
+use crate::history::{HistoryManager, HistoryStorage};
 use anyhow::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -60,6 +61,8 @@ pub enum DialogType {
     NewCollection,
     DeleteConfirm,
     RequestName,
+    History,           // 历史记录弹窗
+    HistorySearch,     // 历史搜索弹窗
 }
 
 #[derive(Debug, Clone)]
@@ -107,12 +110,24 @@ pub struct App {
 
     pub current_request_source: Option<(usize, usize)>, // (collection_index, request_index)
     pub pending_delete: Option<DeleteTarget>,
+    
+    // History feature
+    pub history_manager: HistoryManager,
+    pub history_storage: HistoryStorage,
+    pub history_selected: usize,
 }
 
 impl App {
     pub fn new() -> Result<Self> {
         let storage = Storage::new()?;
         let data = storage.load()?;
+        
+        // Initialize history storage
+        let proj_dirs = directories::ProjectDirs::from("com", "helios", "helios")
+            .ok_or_else(|| anyhow::anyhow!("Could not determine project directories"))?;
+        let data_dir = proj_dirs.data_dir().to_path_buf();
+        let history_storage = HistoryStorage::new(data_dir.clone());
+        let history_manager = history_storage.load().unwrap_or_default();
 
         let mut app = Self {
             running: true,
@@ -146,6 +161,9 @@ impl App {
             pending_window_expiry: 0,
             current_request_source: None,
             pending_delete: None,
+            history_manager,
+            history_storage,
+            history_selected: 0,
         };
 
         app.current_request.url = crate::config::DEFAULT_URL.to_string();
