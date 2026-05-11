@@ -1,9 +1,11 @@
 mod cli;
 mod config;
+mod diff;
 mod export_import;
 mod history;
 mod http_client;
 mod models;
+mod openapi;
 mod storage;
 mod tui;
 mod utils;
