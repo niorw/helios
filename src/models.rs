@@ -74,6 +74,8 @@ pub struct Request {
     pub body: String,
     pub body_type: BodyType,
     pub auth: Auth,
+    #[serde(default)]
+    pub notes: String,
 }
 
 impl Request {
@@ -228,6 +230,29 @@ mod tests {
             }
             _ => panic!("Expected Basic auth"),
         }
+    }
+
+    #[test]
+    fn test_request_notes_default_empty() {
+        let req = Request::default();
+        assert_eq!(req.notes, "");
+    }
+
+    #[test]
+    fn test_request_notes_serialization() {
+        let mut req = Request::default();
+        req.notes = "my note".to_string();
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("my note"));
+    }
+
+    #[test]
+    fn test_request_notes_roundtrip() {
+        let mut req = Request::default();
+        req.notes = "test note".to_string();
+        let json = serde_json::to_string(&req).unwrap();
+        let loaded: Request = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.notes, "test note");
     }
 
     #[test]

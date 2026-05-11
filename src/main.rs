@@ -53,6 +53,7 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
                 body: body.unwrap_or_default(),
                 body_type,
                 auth: Auth::None,
+                ..Default::default()
             };
 
             println!("Sending {} {}", req.method, req.url);

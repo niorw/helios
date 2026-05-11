@@ -188,6 +188,7 @@ impl App {
                     body: body.to_string(),
                     body_type,
                     auth: Auth::None,
+                    ..Default::default()
                 }
             };
 
