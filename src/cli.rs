@@ -56,6 +56,11 @@ pub enum Commands {
         #[arg(short, long, default_value = "auto", help = "Import format (auto, json, postman)")]
         format: String,
     },
+    #[command(about = "Manage global variables")]
+    Global {
+        #[command(subcommand)]
+        action: GlobalAction,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -107,5 +112,23 @@ pub enum EnvAction {
     Remove {
         #[arg(help = "Environment name or ID")]
         name: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum GlobalAction {
+    #[command(about = "Set a global variable")]
+    Set {
+        #[arg(help = "Variable key")]
+        key: String,
+        #[arg(help = "Variable value")]
+        value: String,
+    },
+    #[command(about = "List global variables")]
+    List,
+    #[command(about = "Remove a global variable")]
+    Remove {
+        #[arg(help = "Variable key")]
+        key: String,
     },
 }

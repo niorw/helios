@@ -127,6 +127,47 @@ pub struct AppData {
     pub environments: Vec<Environment>,
     pub history: Vec<HistoryItem>,
     pub active_env_id: Option<String>,
+    pub global_variables: HashMap<String, String>,
+}
+
+/// A single step in a scenario that references a request by index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScenarioStep {
+    /// Index into the request list for the collection.
+    pub request_index: usize,
+    /// Delay in milliseconds before executing this step (0 = no delay).
+    pub delay_ms: u64,
+    /// If true, remaining steps are skipped when this step fails.
+    pub skip_on_fail: bool,
+}
+
+impl Default for ScenarioStep {
+    fn default() -> Self {
+        Self {
+            request_index: 0,
+            delay_ms: 0,
+            skip_on_fail: false,
+        }
+    }
+}
+
+/// Result of searching requests across collections.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SearchResult {
+    pub collection_index: usize,
+    pub request_index: usize,
+    pub collection_name: String,
+    pub request_name: String,
+    pub request_url: String,
+    pub method: HttpMethod,
+}
+
+/// Search result referencing a request within a collection.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SearchResult {
+    pub request_name: String,
+    pub collection_index: usize,
+    pub request_index: usize,
 }
 
 #[cfg(test)]
@@ -202,6 +243,36 @@ mod tests {
         assert!(data.environments.is_empty());
         assert!(data.history.is_empty());
         assert!(data.active_env_id.is_none());
+        assert!(data.global_variables.is_empty());
+    }
+
+    #[test]
+    fn test_global_variables_set_and_get() {
+        let mut data: AppData = Default::default();
+        data.global_variables.insert("api_key".to_string(), "abc123".to_string());
+        assert_eq!(data.global_variables.get("api_key"), Some(&"abc123".to_string()));
+        assert_eq!(data.global_variables.len(), 1);
+    }
+
+    #[test]
+    fn test_global_variables_overwrite() {
+        let mut data: AppData = Default::default();
+        data.global_variables.insert("key".to_string(), "val1".to_string());
+        data.global_variables.insert("key".to_string(), "val2".to_string());
+        assert_eq!(data.global_variables.get("key"), Some(&"val2".to_string()));
+        assert_eq!(data.global_variables.len(), 1);
+    }
+
+    #[test]
+    fn test_global_variables_serialization() {
+        let mut data: AppData = Default::default();
+        data.global_variables.insert("token".to_string(), "secret".to_string());
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("global_variables"));
+        assert!(json.contains("token"));
+        assert!(json.contains("secret"));
+        let deserialized: AppData = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.global_variables.get("token"), Some(&"secret".to_string()));
     }
 
     #[test]
