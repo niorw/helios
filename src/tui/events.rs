@@ -117,6 +117,7 @@ fn handle_normal(app: &mut App, key: event::KeyEvent) {
             }
         }
         Action::SidebarDelete => app.delete_selected_item(),
+        Action::SidebarRename => app.rename_selected_request(),
         Action::SidebarTabCollections => app.sidebar_tab = crate::tui::app::SidebarTab::Collections,
         Action::SidebarTabEnvironments => app.sidebar_tab = crate::tui::app::SidebarTab::Environments,
 
@@ -336,6 +337,9 @@ fn handle_dialog(app: &mut App, key: event::KeyEvent) {
                         }
                     }
                     DialogType::NewCollection => app.create_collection(&value),
+                    DialogType::RenameRequest => {
+                        app.confirm_rename_request(&value);
+                    }
                     DialogType::RequestName => {
                         app.current_request.name = value;
                         app.do_save_request();

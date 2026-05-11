@@ -56,7 +56,7 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
             };
 
             println!("Sending {} {}", req.method, req.url);
-            let resp = http_client::send_request(&req).await?;
+            let resp = http_client::send_request(&req, None).await?;
             println!(
                 "Status: {} {} | Time: {}ms | Size: {} bytes",
                 resp.status,
@@ -187,7 +187,7 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
                 let mut failed = 0;
                 for req in &col.requests {
                     print!("  {} {} ... ", req.method, req.url);
-                    match http_client::send_request(req).await {
+                    match http_client::send_request(req, None).await {
                         Ok(resp) => {
                             if resp.status < 400 {
                                 println!("OK ({})", resp.status);
