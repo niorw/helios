@@ -117,6 +117,7 @@ fn handle_normal(app: &mut App, key: event::KeyEvent) {
             }
         }
         Action::SidebarDelete => app.delete_selected_item(),
+        Action::CloneRequest => app.clone_selected_request(),
         Action::SidebarTabCollections => app.sidebar_tab = crate::tui::app::SidebarTab::Collections,
         Action::SidebarTabEnvironments => app.sidebar_tab = crate::tui::app::SidebarTab::Environments,
 
