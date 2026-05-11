@@ -4,6 +4,7 @@ mod diff;
 mod export_import;
 mod history;
 mod http_client;
+mod jsonpath;
 mod models;
 mod openapi;
 mod storage;
@@ -239,6 +240,7 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
             };
             let col = match fmt {
                 "postman" => export_import::import_postman(&content)?,
+                "openapi" => openapi::parse_openapi(&content)?,
                 _ => export_import::import_json(&content)?,
             };
             data.collections.push(col);
