@@ -66,6 +66,13 @@ pub enum DialogType {
 }
 
 #[derive(Debug, Clone)]
+pub struct TabInfo {
+    pub request: Request,
+    pub label: String,
+    pub source: Option<(usize, usize)>, // (collection_index, request_index)
+}
+
+#[derive(Debug, Clone)]
 pub enum DeleteTarget {
     Collection(usize),
     Request(usize, usize), // collection_index, request_index
@@ -111,6 +118,10 @@ pub struct App {
     pub current_request_source: Option<(usize, usize)>, // (collection_index, request_index)
     pub pending_delete: Option<DeleteTarget>,
     
+    // Tab management
+    pub open_tabs: Vec<TabInfo>,
+    pub active_tab: usize,
+
     // History feature
     pub history_manager: HistoryManager,
     pub history_storage: HistoryStorage,
@@ -161,6 +172,8 @@ impl App {
             pending_window_expiry: 0,
             current_request_source: None,
             pending_delete: None,
+            open_tabs: Vec::new(),
+            active_tab: 0,
             history_manager,
             history_storage,
             history_selected: 0,
@@ -993,6 +1006,39 @@ impl App {
                 }
             }
         }
+    }
+
+    /// 打开新标签页
+    pub fn open_tab(&mut self, request: Request, label: String, source: Option<(usize, usize)>) {
+        if self.open_tabs.len() >= 9 {
+            self.set_status("Max 9 tabs reached");
+            return;
+        }
+        self.open_tabs.push(TabInfo { request, label, source });
+        self.active_tab = self.open_tabs.len() - 1;
+    }
+
+    /// 关闭当前标签页
+    pub fn close_current_tab(&mut self) {
+        if self.open_tabs.is_empty() {
+            return;
+        }
+        self.open_tabs.remove(self.active_tab);
+        if self.active_tab >= self.open_tabs.len() && !self.open_tabs.is_empty() {
+            self.active_tab = self.open_tabs.len() - 1;
+        }
+    }
+
+    /// 切换到指定标签页
+    pub fn switch_to_tab(&mut self, index: usize) {
+        if index < self.open_tabs.len() {
+            self.active_tab = index;
+        }
+    }
+
+    /// 获取当前标签页的请求
+    pub fn current_tab_request(&self) -> Option<&Request> {
+        self.open_tabs.get(self.active_tab).map(|t| &t.request)
     }
 
     pub fn export_collection(&mut self, format: &str) -> Option<String> {
