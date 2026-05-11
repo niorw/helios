@@ -127,6 +127,18 @@ pub fn parse_headers(raw: &[String]) -> Vec<KeyValue> {
         .collect()
 }
 
+/// 自动格式化 JSON body（仅当 body_type 为 Json 且内容合法时）
+pub fn auto_format_body(body: &str, body_type: &BodyType) -> String {
+    match body_type {
+        BodyType::Json => {
+            serde_json::from_str::<serde_json::Value>(body)
+                .and_then(|v| serde_json::to_string(&v))
+                .unwrap_or_else(|_| body.to_string())
+        }
+        _ => body.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +205,27 @@ mod tests {
         assert_eq!(headers.len(), 1);
         assert_eq!(headers[0].key, "X-Empty-Value");
         assert_eq!(headers[0].value, "");
+    }
+
+    #[test]
+    fn test_auto_format_valid_json() {
+        let body = r#"{"name":"test","value":123}"#;
+        let result = auto_format_body(body, &BodyType::Json);
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed["name"], "test");
+    }
+
+    #[test]
+    fn test_auto_format_invalid_json_keeps_original() {
+        let body = "not valid json {{{";
+        let result = auto_format_body(body, &BodyType::Json);
+        assert_eq!(result, body);
+    }
+
+    #[test]
+    fn test_auto_format_non_json_keeps_original() {
+        let body = "  {  spaced  :  true  }  ";
+        let result = auto_format_body(body, &BodyType::Text);
+        assert_eq!(result, body);
     }
 }
