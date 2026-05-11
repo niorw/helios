@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod curl_parser;
 mod export_import;
 mod history;
 mod http_client;
