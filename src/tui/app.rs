@@ -995,6 +995,22 @@ impl App {
         }
     }
 
+    /// 搜索请求（按名称和 URL，大小写不敏感）
+    pub fn search_requests(&self, query: &str) -> Vec<(usize, usize, String)> {
+        let query_lower = query.to_lowercase();
+        let mut results = Vec::new();
+        for (ci, col) in self.data.collections.iter().enumerate() {
+            for (ri, req) in col.requests.iter().enumerate() {
+                if req.name.to_lowercase().contains(&query_lower)
+                    || req.url.to_lowercase().contains(&query_lower)
+                {
+                    results.push((ci, ri, format!("{} {} {}", req.method, req.name, req.url)));
+                }
+            }
+        }
+        results
+    }
+
     pub fn export_collection(&mut self, format: &str) -> Option<String> {
         if let Some(ci) = self.get_selected_collection_index() {
             let col = &self.data.collections[ci];
