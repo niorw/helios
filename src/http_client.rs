@@ -77,6 +77,7 @@ pub async fn send_request(req: &Request) -> Result<Response> {
             }
         }
         BodyType::None => {}
+        BodyType::FormData => {}
     }
 
     match &req.auth {
