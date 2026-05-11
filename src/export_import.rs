@@ -153,6 +153,7 @@ pub fn import_postman(data: &str) -> Result<Collection> {
                 body,
                 body_type,
                 auth: Auth::None,
+                ..Default::default()
             }
         })
         .collect();
