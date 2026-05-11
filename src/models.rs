@@ -36,6 +36,7 @@ pub enum BodyType {
     Form,
     Text,
     Xml,
+    FormData,
 }
 
 impl std::fmt::Display for BodyType {
@@ -46,6 +47,7 @@ impl std::fmt::Display for BodyType {
             BodyType::Form => write!(f, "form"),
             BodyType::Text => write!(f, "text"),
             BodyType::Xml => write!(f, "xml"),
+            BodyType::FormData => write!(f, "form-data"),
         }
     }
 }
@@ -74,6 +76,18 @@ pub struct Request {
     pub body: String,
     pub body_type: BodyType,
     pub auth: Auth,
+    #[serde(default)]
+    pub form_data: Vec<FormDataItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct FormDataItem {
+    pub key: String,
+    pub value: String,
+    #[serde(default)]
+    pub is_file: bool,
+    #[serde(default)]
+    pub file_path: Option<String>,
 }
 
 impl Request {
@@ -228,6 +242,26 @@ mod tests {
             }
             _ => panic!("Expected Basic auth"),
         }
+    }
+
+    #[test]
+    fn test_form_data_item_default() {
+        let item = FormDataItem::default();
+        assert_eq!(item.key, "");
+        assert!(!item.is_file);
+    }
+
+    #[test]
+    fn test_form_data_serialization() {
+        let item = FormDataItem { key: "f".into(), value: "v".into(), is_file: true, file_path: Some("/tmp".into()) };
+        let json = serde_json::to_string(&item).unwrap();
+        let loaded: FormDataItem = serde_json::from_str(&json).unwrap();
+        assert!(loaded.is_file);
+    }
+
+    #[test]
+    fn test_body_type_form_data_display() {
+        assert_eq!(BodyType::FormData.to_string(), "form-data");
     }
 
     #[test]
