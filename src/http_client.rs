@@ -76,6 +76,15 @@ pub async fn send_request(req: &Request) -> Result<Response> {
                 builder = builder.body(req.body.clone());
             }
         }
+        BodyType::Graphql => {
+            builder = builder.header("Content-Type", "application/json");
+            if !req.body.is_empty() {
+                builder = builder.body(req.body.clone());
+            }
+        }
+        BodyType::FormData => {
+            // multipart/form-data 由 reqwest multipart 处理
+        }
         BodyType::None => {}
     }
 

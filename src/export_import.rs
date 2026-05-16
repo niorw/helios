@@ -153,6 +153,10 @@ pub fn import_postman(data: &str) -> Result<Collection> {
                 body,
                 body_type,
                 auth: Auth::None,
+                graphql_query: None,
+                graphql_variables: None,
+                form_data: vec![],
+                notes: String::new(),
             }
         })
         .collect();

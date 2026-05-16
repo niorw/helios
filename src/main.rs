@@ -1,8 +1,11 @@
 mod cli;
 mod config;
 mod export_import;
+mod file_storage;
+mod helios_format;
 mod history;
 mod http_client;
+mod migrate;
 mod models;
 mod storage;
 mod tui;
@@ -53,6 +56,10 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
                 body: body.unwrap_or_default(),
                 body_type,
                 auth: Auth::None,
+                graphql_query: None,
+                graphql_variables: None,
+                form_data: vec![],
+                notes: String::new(),
             };
 
             println!("Sending {} {}", req.method, req.url);
@@ -242,6 +249,69 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
             data.collections.push(col);
             storage.save(&data)?;
             println!("Imported collection from {}", file);
+        }
+        cli::Commands::Init { name } => {
+            let project_name = name.unwrap_or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .and_then(|d| d.file_name().map(|n| n.to_string_lossy().to_string()))
+                    .unwrap_or_else(|| "helios-project".to_string())
+            });
+
+            // 在当前目录创建 helios 项目结构
+            let col_dir = std::path::Path::new("collections").join(&project_name);
+            std::fs::create_dir_all(&col_dir)?;
+
+            // 写入 collection.yml
+            let col_yml = file_storage::CollectionYml {
+                name: project_name.clone(),
+                description: String::new(),
+            };
+            let content = serde_yaml::to_string(&col_yml)?;
+            std::fs::write(col_dir.join("collection.yml"), content)?;
+
+            // 写入示例请求
+            let example = helios_format::HeliosYml {
+                info: helios_format::HeliosInfo {
+                    name: "健康检查".to_string(),
+                    r#type: "http".to_string(),
+                    seq: 1,
+                    tags: vec![],
+                },
+                http: helios_format::HeliosHttp {
+                    method: "GET".to_string(),
+                    url: "https://httpbin.org/get".to_string(),
+                    params: vec![],
+                    headers: vec![],
+                    body: None,
+                    auth: None,
+                },
+                runtime: None,
+                settings: None,
+                docs: Some("示例请求 — 可删除或修改".to_string()),
+            };
+            helios_format::save_helios_yml(&example, &col_dir.join("health-check.helios.yml"))?;
+
+            println!("已初始化 Helios 项目: {}", project_name);
+            println!("  目录结构:");
+            println!("    collections/{}/", project_name);
+            println!("      collection.yml");
+            println!("      health-check.helios.yml");
+        }
+        cli::Commands::Migrate { dry_run } => {
+            let status = migrate::migrate_json_to_files(dry_run)?;
+            if dry_run {
+                println!("迁移预览 (dry-run):");
+            } else if status.migrated {
+                println!("迁移完成!");
+            } else {
+                println!("无需迁移");
+            }
+            println!("  集合数: {}", status.collections_migrated);
+            println!("  请求数: {}", status.requests_migrated);
+            if let Some(legacy) = &status.legacy_data_file {
+                println!("  旧数据文件: {}", legacy);
+            }
         }
     }
 
