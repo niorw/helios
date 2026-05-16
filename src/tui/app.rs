@@ -1,9 +1,9 @@
+use crate::history::{HistoryManager, HistoryStorage};
 use crate::models::{
-    AppData, Auth, BodyType, Collection, HistoryItem, HttpMethod, KeyValue, Request,
+    AppData, Auth, BodyType, Collection, Folder, HistoryItem, HttpMethod, KeyValue, Request,
     Response,
 };
 use crate::storage::Storage;
-use crate::history::{HistoryManager, HistoryStorage};
 use anyhow::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -61,14 +61,36 @@ pub enum DialogType {
     NewCollection,
     DeleteConfirm,
     RequestName,
-    History,           // 历史记录弹窗
-    HistorySearch,     // 历史搜索弹窗
+    History,       // 历史记录弹窗
+    HistorySearch, // 历史搜索弹窗
+}
+
+/// Identifies the type of a sidebar item for selection logic.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SidebarItemType {
+    /// A collection header row
+    Collection(usize),
+    /// A folder row: collection_index, folder_path (indices into nested folders)
+    Folder(usize, Vec<usize>),
+    /// A request row: collection_index, folder_path, request_index_in_folder
+    /// folder_path is empty for root-level requests
+    Request(usize, Vec<usize>, usize),
 }
 
 #[derive(Debug, Clone)]
 pub enum DeleteTarget {
     Collection(usize),
-    Request(usize, usize), // collection_index, request_index
+    Request(usize, usize), // collection_index, request_index (root-level)
+    FolderRequest(usize, Vec<usize>, usize), // collection_index, folder_path, request_index_in_folder
+}
+
+/// Tracks where the currently loaded request came from, for in-place save.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RequestSource {
+    /// Request lives at root of a collection: (collection_index, request_index)
+    Root(usize, usize),
+    /// Request lives inside a folder: (collection_index, folder_path, request_index_in_folder)
+    Folder(usize, Vec<usize>, usize),
 }
 
 pub struct App {
@@ -89,6 +111,7 @@ pub struct App {
 
     pub sidebar_selected: usize,
     pub collection_expanded: Vec<String>,
+    pub folder_expanded: Vec<String>,
 
     pub param_list_state: ratatui::widgets::TableState,
     pub header_list_state: ratatui::widgets::TableState,
@@ -108,20 +131,115 @@ pub struct App {
     pub pending_window_prefix: bool,
     pub pending_window_expiry: u64,
 
-    pub current_request_source: Option<(usize, usize)>, // (collection_index, request_index)
+    pub current_request_source: Option<RequestSource>,
     pub pending_delete: Option<DeleteTarget>,
-    
+
     // History feature
     pub history_manager: HistoryManager,
     pub history_storage: HistoryStorage,
     pub history_selected: usize,
 }
 
+// ─── Folder traversal helpers ─────────────────────────────────────────
+
+/// Get a reference to a folder by following the path of indices.
+pub fn get_folder_by_path<'a>(folders: &'a [Folder], path: &[usize]) -> Option<&'a Folder> {
+    if path.is_empty() {
+        return None;
+    }
+    let first = folders.get(path[0])?;
+    let mut current = first;
+    for &idx in &path[1..] {
+        current = current.folders.get(idx)?;
+    }
+    Some(current)
+}
+
+/// Get a mutable reference to a folder by following the path of indices.
+fn get_folder_by_path_mut<'a>(folders: &'a mut [Folder], path: &[usize]) -> Option<&'a mut Folder> {
+    if path.is_empty() {
+        return None;
+    }
+    if path.len() == 1 {
+        return folders.get_mut(path[0]);
+    }
+    let first_idx = path[0];
+    let remaining = &path[1..];
+    let first = folders.get_mut(first_idx)?;
+    let mut current = first;
+    for &idx in remaining {
+        current = current.folders.get_mut(idx)?;
+    }
+    Some(current)
+}
+
+/// Recursively count visible sidebar items within a folder (folders + requests).
+fn count_folder_items(folder: &Folder, folder_expanded: &[String]) -> usize {
+    let mut count = 1; // the folder itself
+    if folder_expanded.contains(&folder.id) {
+        for req in &folder.requests {
+            count += 1; // each request
+            let _ = req; // suppress unused warning
+        }
+        for sub in &folder.folders {
+            count += count_folder_items(sub, folder_expanded);
+        }
+    }
+    count
+}
+
+/// Recursively collect sidebar items from folders, building the flat sidebar index.
+fn collect_folder_items(
+    folder: &Folder,
+    ci: usize,
+    path: &mut Vec<usize>,
+    folder_expanded: &[String],
+    items: &mut Vec<SidebarItemType>,
+) {
+    items.push(SidebarItemType::Folder(ci, path.clone()));
+    if folder_expanded.contains(&folder.id) {
+        for (ri, _) in folder.requests.iter().enumerate() {
+            items.push(SidebarItemType::Request(ci, path.clone(), ri));
+        }
+        for (fi, sub) in folder.folders.iter().enumerate() {
+            path.push(fi);
+            collect_folder_items(sub, ci, path, folder_expanded, items);
+            path.pop();
+        }
+    }
+}
+
+/// Collect all visible sidebar items for the Collections tab.
+pub fn collect_sidebar_items(app: &App) -> Vec<SidebarItemType> {
+    let mut items = Vec::new();
+    for (ci, col) in app.data.collections.iter().enumerate() {
+        items.push(SidebarItemType::Collection(ci));
+        if app.collection_expanded.contains(&col.id) {
+            // Root-level requests
+            for (ri, _) in col.requests.iter().enumerate() {
+                items.push(SidebarItemType::Request(ci, Vec::new(), ri));
+            }
+            // Folders
+            for (fi, folder) in col.folders.iter().enumerate() {
+                let mut path = vec![fi];
+                collect_folder_items(folder, ci, &mut path, &app.folder_expanded, &mut items);
+            }
+        }
+    }
+    items
+}
+
+/// Get the SidebarItemType at the current sidebar_selected index.
+pub fn get_selected_item_type(app: &App) -> Option<SidebarItemType> {
+    let items = collect_sidebar_items(app);
+    items.into_iter().nth(app.sidebar_selected)
+}
+
 impl App {
     pub fn new() -> Result<Self> {
         let storage = Storage::new()?;
         let data = storage.load()?;
-        
+
         // Initialize history storage
         let proj_dirs = directories::ProjectDirs::from("com", "helios", "helios")
             .ok_or_else(|| anyhow::anyhow!("Could not determine project directories"))?;
@@ -145,6 +263,7 @@ impl App {
             cursor_pos: 0,
             sidebar_selected: 0,
             collection_expanded: Vec::new(),
+            folder_expanded: Vec::new(),
             param_list_state: ratatui::widgets::TableState::default(),
             header_list_state: ratatui::widgets::TableState::default(),
             status_message: None,
@@ -177,13 +296,26 @@ impl App {
 
         // Seed demo data if empty
         if app.data.collections.is_empty() {
-            let mk = |name: &str, method: HttpMethod, url: &str, headers: Vec<(&str, &str)>, body: &str, body_type: BodyType| -> Request {
+            let mk = |name: &str,
+                      method: HttpMethod,
+                      url: &str,
+                      headers: Vec<(&str, &str)>,
+                      body: &str,
+                      body_type: BodyType|
+             -> Request {
                 Request {
                     id: uuid::Uuid::new_v4().to_string(),
                     name: name.to_string(),
                     method,
                     url: url.to_string(),
-                    headers: headers.into_iter().map(|(k, v)| KeyValue { key: k.to_string(), value: v.to_string(), enabled: true }).collect(),
+                    headers: headers
+                        .into_iter()
+                        .map(|(k, v)| KeyValue {
+                            key: k.to_string(),
+                            value: v.to_string(),
+                            enabled: true,
+                        })
+                        .collect(),
                     params: vec![],
                     body: body.to_string(),
                     body_type,
@@ -199,7 +331,8 @@ impl App {
                 Collection {
                     id: uuid::Uuid::new_v4().to_string(),
                     name: "🌐 httpbin.org".to_string(),
-                    requests: vec![
+                    folders: vec![],
+                    requests: [
                         mk("GET 查询参数", HttpMethod::GET, "https://httpbin.org/get?foo=bar&baz=qux", vec![("Accept","application/json")], "", BodyType::None),
                         mk("POST JSON", HttpMethod::POST, "https://httpbin.org/post", vec![("Content-Type","application/json"),("Accept","application/json")], r#"{"username":"helios","password":"demo123"}"#, BodyType::Json),
                         mk("PUT 更新", HttpMethod::PUT, "https://httpbin.org/put", vec![("Content-Type","application/json"),("Accept","application/json")], r#"{"id":1,"name":"updated"}"#, BodyType::Json),
@@ -208,7 +341,7 @@ impl App {
                         mk("GET IP 地址", HttpMethod::GET, "https://httpbin.org/ip", vec![("Accept","application/json")], "", BodyType::None),
                         mk("GET User-Agent", HttpMethod::GET, "https://httpbin.org/user-agent", vec![("Accept","application/json")], "", BodyType::None),
                         mk("GET Base64 解码", HttpMethod::GET, "https://httpbin.org/base64/SGVsbG8gV29ybGQ=", vec![("Accept","text/plain")], "", BodyType::None),
-                    ],
+                    ].to_vec(),
                     created_at: chrono::Local::now(),
                 },
                 Collection {
@@ -224,6 +357,7 @@ impl App {
                         mk("PUT 更新文章", HttpMethod::PUT, "https://jsonplaceholder.typicode.com/posts/1", vec![("Content-Type","application/json"),("Accept","application/json")], r#"{"id":1,"title":"Updated","body":"Updated body","userId":1}"#, BodyType::Json),
                         mk("DELETE 文章", HttpMethod::DELETE, "https://jsonplaceholder.typicode.com/posts/1", vec![("Accept","application/json")], "", BodyType::None),
                     ],
+                    folders: vec![],
                     created_at: chrono::Local::now(),
                 },
                 Collection {
@@ -238,6 +372,7 @@ impl App {
                         mk("PUT 更新用户", HttpMethod::PUT, "https://reqres.in/api/users/2", vec![("Content-Type","application/json"),("Accept","application/json")], r#"{"name":"Helios","job":"API Client"}"#, BodyType::Json),
                         mk("DELETE 用户", HttpMethod::DELETE, "https://reqres.in/api/users/2", vec![("Accept","application/json")], "", BodyType::None),
                     ],
+                    folders: vec![],
                     created_at: chrono::Local::now(),
                 },
                 Collection {
@@ -252,6 +387,7 @@ impl App {
                         mk("GET 上海时间", HttpMethod::GET, "http://worldtimeapi.org/api/timezone/Asia/Shanghai", vec![("Accept","application/json")], "", BodyType::None),
                         mk("GET 纽约时间", HttpMethod::GET, "http://worldtimeapi.org/api/timezone/America/New_York", vec![("Accept","application/json")], "", BodyType::None),
                     ],
+                    folders: vec![],
                     created_at: chrono::Local::now(),
                 },
                 Collection {
@@ -264,6 +400,7 @@ impl App {
                         mk("GET 加密货币价格", HttpMethod::GET, "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd,cny", vec![("Accept","application/json")], "", BodyType::None),
                         mk("GET 比特币历史", HttpMethod::GET, "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=7", vec![("Accept","application/json")], "", BodyType::None),
                     ],
+                    folders: vec![],
                     created_at: chrono::Local::now(),
                 },
                 Collection {
@@ -282,6 +419,7 @@ impl App {
                         mk("GET 一言", HttpMethod::GET, "https://v1.hitokoto.cn/", vec![("Accept","application/json")], "", BodyType::None),
                         mk("GET 每日诗词", HttpMethod::GET, "https://v1.jinrishici.com/all.json", vec![("Accept","application/json")], "", BodyType::None),
                     ],
+                    folders: vec![],
                     created_at: chrono::Local::now(),
                 },
                 Collection {
@@ -295,6 +433,7 @@ impl App {
                         mk("GET 全球热门电台", HttpMethod::GET, "http://de1.api.radio-browser.info/json/stations/topvote/10", vec![("Accept","application/json")], "", BodyType::None),
                         mk("GET 知乎日报", HttpMethod::GET, "https://news-at.zhihu.com/api/4/news/latest", vec![("Accept","application/json")], "", BodyType::None),
                     ],
+                    folders: vec![],
                     created_at: chrono::Local::now(),
                 },
                 Collection {
@@ -308,6 +447,7 @@ impl App {
                         mk("GET NPM 包信息", HttpMethod::GET, "https://registry.npmjs.org/react/latest", vec![("Accept","application/json")], "", BodyType::None),
                         mk("GET Docker Hub 镜像", HttpMethod::GET, "https://hub.docker.com/v2/repositories/library/rust/", vec![("Accept","application/json")], "", BodyType::None),
                     ],
+                    folders: vec![],
                     created_at: chrono::Local::now(),
                 },
             ];
@@ -327,7 +467,10 @@ impl App {
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>) {
-        self.status_message = Some((msg.into(), self.tick + crate::config::STATUS_MESSAGE_TIMEOUT_TICKS));
+        self.status_message = Some((
+            msg.into(),
+            self.tick + crate::config::STATUS_MESSAGE_TIMEOUT_TICKS,
+        ));
     }
 
     pub fn tick(&mut self) {
@@ -363,13 +506,8 @@ impl App {
     pub fn sidebar_item_count(&self) -> usize {
         match self.sidebar_tab {
             SidebarTab::Collections => {
-                let mut count = self.data.collections.len();
-                for c in &self.data.collections {
-                    if self.collection_expanded.contains(&c.id) {
-                        count += c.requests.len();
-                    }
-                }
-                count
+                let items = collect_sidebar_items(self);
+                items.len()
             }
             SidebarTab::Environments => self.data.environments.len(),
         }
@@ -393,66 +531,106 @@ impl App {
         if self.sidebar_tab != SidebarTab::Collections {
             return false;
         }
-        let mut idx = 0;
-        for (ci, col) in self.data.collections.iter().enumerate() {
-            if self.sidebar_selected == idx {
-                return false; // selected a collection header, not a request
-            }
-            idx += 1;
-            if self.collection_expanded.contains(&col.id) {
-                for (ri, req) in col.requests.iter().enumerate() {
-                    if self.sidebar_selected == idx {
-                        let name = req.name.clone();
-                        self.load_request(req.clone(), Some((ci, ri)));
-                        self.set_status(format!("Loaded: {}", name));
-                        return true;
-                    }
-                    idx += 1;
+        let item_type = match get_selected_item_type(self) {
+            Some(t) => t,
+            None => return false,
+        };
+        match item_type {
+            SidebarItemType::Request(ci, ref path, ri) => {
+                let req = if path.is_empty() {
+                    // Root-level request
+                    self.data
+                        .collections
+                        .get(ci)
+                        .and_then(|col| col.requests.get(ri))
+                        .cloned()
+                } else {
+                    // Folder request
+                    self.data
+                        .collections
+                        .get(ci)
+                        .and_then(|col| get_folder_by_path(&col.folders, path))
+                        .and_then(|folder| folder.requests.get(ri))
+                        .cloned()
+                };
+                if let Some(req) = req {
+                    let name = req.name.clone();
+                    let source = if path.is_empty() {
+                        RequestSource::Root(ci, ri)
+                    } else {
+                        RequestSource::Folder(ci, path.clone(), ri)
+                    };
+                    self.load_request(req, Some(source));
+                    self.set_status(format!("Loaded: {}", name));
+                    return true;
                 }
+                false
             }
+            SidebarItemType::Collection(_) | SidebarItemType::Folder(_, _) => false,
         }
-        false
     }
 
     pub fn get_selected_collection_index(&self) -> Option<usize> {
         if self.sidebar_tab != SidebarTab::Collections {
             return None;
         }
-        let mut idx = 0;
-        for (ci, col) in self.data.collections.iter().enumerate() {
-            if self.sidebar_selected == idx {
-                return Some(ci);
-            }
-            idx += 1;
-            if self.collection_expanded.contains(&col.id) {
-                idx += col.requests.len();
-            }
+        match get_selected_item_type(self) {
+            Some(SidebarItemType::Collection(ci)) => Some(ci),
+            _ => None,
         }
-        None
     }
 
     /// Returns the collection index that contains the currently selected sidebar item.
-    /// Works whether the selection is on a collection header or one of its requests.
+    /// Works whether the selection is on a collection header, folder, or one of its requests.
     pub fn get_selected_or_parent_collection_index(&self) -> Option<usize> {
         if self.sidebar_tab != SidebarTab::Collections {
             return None;
         }
-        let mut idx = 0;
-        for (ci, col) in self.data.collections.iter().enumerate() {
-            if self.sidebar_selected == idx {
-                return Some(ci);
-            }
-            idx += 1;
-            if self.collection_expanded.contains(&col.id) {
-                for _ in &col.requests {
-                    if self.sidebar_selected == idx {
-                        return Some(ci);
+        match get_selected_item_type(self) {
+            Some(SidebarItemType::Collection(ci)) => Some(ci),
+            Some(SidebarItemType::Folder(ci, _)) => Some(ci),
+            Some(SidebarItemType::Request(ci, _, _)) => Some(ci),
+            None => None,
+        }
+    }
+
+    /// Toggle expand/collapse for the currently selected collection or folder.
+    pub fn toggle_expand(&mut self) {
+        if self.sidebar_tab != SidebarTab::Collections {
+            return;
+        }
+        let item_type = match get_selected_item_type(self) {
+            Some(t) => t,
+            None => return,
+        };
+        match item_type {
+            SidebarItemType::Collection(ci) => {
+                let col_id = self.data.collections.get(ci).map(|c| c.id.clone());
+                if let Some(id) = col_id {
+                    if self.collection_expanded.contains(&id) {
+                        self.collection_expanded.retain(|x| x != &id);
+                    } else {
+                        self.collection_expanded.push(id);
                     }
-                    idx += 1;
                 }
             }
+            SidebarItemType::Folder(ci, ref path) => {
+                let folder_id = self
+                    .data
+                    .collections
+                    .get(ci)
+                    .and_then(|col| get_folder_by_path(&col.folders, path))
+                    .map(|f| f.id.clone());
+                if let Some(id) = folder_id {
+                    if self.folder_expanded.contains(&id) {
+                        self.folder_expanded.retain(|x| x != &id);
+                    } else {
+                        self.folder_expanded.push(id);
+                    }
+                }
+            }
+            SidebarItemType::Request(_, _, _) => {}
         }
-        None
     }
 
     pub fn add_param(&mut self) {
@@ -471,11 +649,7 @@ impl App {
         if idx < self.current_request.params.len() {
             self.current_request.params.remove(idx);
             let max = self.current_request.params.len().saturating_sub(1);
-            let sel = self
-                .param_list_state
-                .selected()
-                .unwrap_or(0)
-                .min(max);
+            let sel = self.param_list_state.selected().unwrap_or(0).min(max);
             self.param_list_state.select(Some(sel));
         }
     }
@@ -484,11 +658,7 @@ impl App {
         if idx < self.current_request.headers.len() {
             self.current_request.headers.remove(idx);
             let max = self.current_request.headers.len().saturating_sub(1);
-            let sel = self
-                .header_list_state
-                .selected()
-                .unwrap_or(0)
-                .min(max);
+            let sel = self.header_list_state.selected().unwrap_or(0).min(max);
             self.header_list_state.select(Some(sel));
         }
     }
@@ -579,8 +749,9 @@ impl App {
                     }
                 }
                 EditingField::AuthToken => {
-                    self.current_request.auth =
-                        Auth::Bearer { token: self.edit_buffer.clone() };
+                    self.current_request.auth = Auth::Bearer {
+                        token: self.edit_buffer.clone(),
+                    };
                 }
                 EditingField::AuthUsername => {
                     let password = match &self.current_request.auth {
@@ -605,14 +776,38 @@ impl App {
             }
         }
         // Auto-save: sync current request back to its source collection if tracked
-        if let Some((ci, ri)) = self.current_request_source {
-            if ci < self.data.collections.len() && ri < self.data.collections[ci].requests.len() {
-                let req = self.current_request.clone();
-                self.data.collections[ci].requests[ri] = req;
-                let _ = self.save();
+        self.sync_current_request_to_source();
+        self.cancel_edit();
+    }
+
+    /// Sync the current request back to where it was loaded from.
+    fn sync_current_request_to_source(&mut self) {
+        if let Some(ref source) = self.current_request_source.clone() {
+            match source {
+                RequestSource::Root(ci, ri) => {
+                    if *ci < self.data.collections.len()
+                        && *ri < self.data.collections[*ci].requests.len()
+                    {
+                        let req = self.current_request.clone();
+                        self.data.collections[*ci].requests[*ri] = req;
+                        let _ = self.save();
+                    }
+                }
+                RequestSource::Folder(ci, path, ri) => {
+                    if *ci < self.data.collections.len() {
+                        if let Some(folder) =
+                            get_folder_by_path_mut(&mut self.data.collections[*ci].folders, path)
+                        {
+                            if *ri < folder.requests.len() {
+                                let req = self.current_request.clone();
+                                folder.requests[*ri] = req;
+                                let _ = self.save();
+                            }
+                        }
+                    }
+                }
             }
         }
-        self.cancel_edit();
     }
 
     pub fn cancel_edit(&mut self) {
@@ -653,7 +848,11 @@ impl App {
     }
 
     fn prev_byte_boundary(&self, s: &str, pos: usize) -> usize {
-        s[..pos].char_indices().last().map(|(idx, _)| idx).unwrap_or(0)
+        s[..pos]
+            .char_indices()
+            .last()
+            .map(|(idx, _)| idx)
+            .unwrap_or(0)
     }
 
     // Dialog text editing (same Unicode-safe logic)
@@ -668,7 +867,8 @@ impl App {
     pub fn dialog_delete_char(&mut self) {
         if self.dialog_cursor > 0 && self.dialog_cursor <= self.dialog_buffer.len() {
             let prev = self.prev_byte_boundary(&self.dialog_buffer, self.dialog_cursor);
-            self.dialog_buffer.replace_range(prev..self.dialog_cursor, "");
+            self.dialog_buffer
+                .replace_range(prev..self.dialog_cursor, "");
             self.dialog_cursor = prev;
         }
     }
@@ -734,10 +934,20 @@ impl App {
     pub fn cycle_header_key(&mut self, idx: usize) {
         if let Some(h) = self.current_request.headers.get_mut(idx) {
             let common = vec![
-                "Content-Type", "Accept", "Authorization", "User-Agent",
-                "Cache-Control", "X-Request-Id", "X-Api-Key", "Referer", "Origin",
+                "Content-Type",
+                "Accept",
+                "Authorization",
+                "User-Agent",
+                "Cache-Control",
+                "X-Request-Id",
+                "X-Api-Key",
+                "Referer",
+                "Origin",
             ];
-            let pos = common.iter().position(|&k| k == h.key).unwrap_or(common.len() - 1);
+            let pos = common
+                .iter()
+                .position(|&k| k == h.key)
+                .unwrap_or(common.len() - 1);
             let next = common[(pos + 1) % common.len()];
             h.key = next.to_string();
             h.value = match next {
@@ -754,15 +964,28 @@ impl App {
     pub fn cycle_header_value(&mut self, idx: usize) {
         if let Some(h) = self.current_request.headers.get_mut(idx) {
             let presets: Vec<&str> = match h.key.as_str() {
-                "Content-Type" => vec!["application/json", "application/x-www-form-urlencoded", "text/plain", "application/xml", "multipart/form-data"],
+                "Content-Type" => vec![
+                    "application/json",
+                    "application/x-www-form-urlencoded",
+                    "text/plain",
+                    "application/xml",
+                    "multipart/form-data",
+                ],
                 "Accept" => vec!["application/json", "text/html", "application/xml", "*/*"],
                 "Authorization" => vec!["Bearer ", "Basic "],
                 "Cache-Control" => vec!["no-cache", "no-store", "max-age=0", "must-revalidate"],
-                "User-Agent" => vec![crate::config::DEFAULT_USER_AGENT, "Mozilla/5.0", "curl/7.64.1"],
+                "User-Agent" => vec![
+                    crate::config::DEFAULT_USER_AGENT,
+                    "Mozilla/5.0",
+                    "curl/7.64.1",
+                ],
                 _ => vec![""],
             };
             if !presets.is_empty() {
-                let pos = presets.iter().position(|&v| h.value == v).unwrap_or(presets.len() - 1);
+                let pos = presets
+                    .iter()
+                    .position(|&v| h.value == v)
+                    .unwrap_or(presets.len() - 1);
                 let next = presets[(pos + 1) % presets.len()];
                 h.value = next.to_string();
             }
@@ -771,8 +994,13 @@ impl App {
 
     pub fn cycle_auth_type(&mut self) {
         self.current_request.auth = match self.current_request.auth {
-            Auth::None => Auth::Bearer { token: String::new() },
-            Auth::Bearer { .. } => Auth::Basic { username: String::new(), password: String::new() },
+            Auth::None => Auth::Bearer {
+                token: String::new(),
+            },
+            Auth::Bearer { .. } => Auth::Basic {
+                username: String::new(),
+                password: String::new(),
+            },
             Auth::Basic { .. } => Auth::None,
         };
     }
@@ -799,7 +1027,7 @@ impl App {
         }
     }
 
-    pub fn load_request(&mut self, req: Request, source: Option<(usize, usize)>) {
+    pub fn load_request(&mut self, req: Request, source: Option<RequestSource>) {
         self.current_request = req;
         self.current_request_source = source;
         self.response = None;
@@ -882,41 +1110,96 @@ impl App {
 
     pub fn do_save_request(&mut self) {
         // If this request was loaded from an existing source, update it in place
-        if let Some((ci, ri)) = self.current_request_source {
-            if ci < self.data.collections.len() && ri < self.data.collections[ci].requests.len() {
-                let req = self.current_request.clone();
-                self.data.collections[ci].requests[ri] = req;
-                let _ = self.save();
-                self.set_status(format!("Updated request in '{}'", self.data.collections[ci].name));
-                self.active_pane = ActivePane::Sidebar;
-                return;
+        if let Some(ref source) = self.current_request_source.clone() {
+            match source {
+                RequestSource::Root(ci, ri) => {
+                    if *ci < self.data.collections.len()
+                        && *ri < self.data.collections[*ci].requests.len()
+                    {
+                        let req = self.current_request.clone();
+                        self.data.collections[*ci].requests[*ri] = req;
+                        let _ = self.save();
+                        self.set_status(format!(
+                            "Updated request in '{}'",
+                            self.data.collections[*ci].name
+                        ));
+                        self.active_pane = ActivePane::Sidebar;
+                        return;
+                    }
+                }
+                RequestSource::Folder(ci, path, ri) => {
+                    if *ci < self.data.collections.len() {
+                        if let Some(folder) =
+                            get_folder_by_path_mut(&mut self.data.collections[*ci].folders, path)
+                        {
+                            if *ri < folder.requests.len() {
+                                let req = self.current_request.clone();
+                                folder.requests[*ri] = req;
+                                let _ = self.save();
+                                self.set_status(format!("Updated request in folder"));
+                                self.active_pane = ActivePane::Sidebar;
+                                return;
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        // Otherwise, save as a new request into the selected collection
+        // Otherwise, save as a new request into the selected collection or folder
+        let item_type = get_selected_item_type(self);
         if let Some(ci) = self.get_selected_or_parent_collection_index() {
             let req = self.current_request.clone();
             let col_name = self.data.collections[ci].name.clone();
             let col_id = self.data.collections[ci].id.clone();
-            self.data.collections[ci].requests.push(req);
-            let _ = self.save();
-            self.set_status(format!("Saved to '{}'", col_name));
 
-            // Expand collection if collapsed
-            if !self.collection_expanded.contains(&col_id) {
-                self.collection_expanded.push(col_id);
+            // Determine where to save: if a folder is selected, save into it
+            match item_type {
+                Some(SidebarItemType::Folder(_, ref path)) => {
+                    if let Some(folder) =
+                        get_folder_by_path_mut(&mut self.data.collections[ci].folders, path)
+                    {
+                        let folder_name = folder.name.clone();
+                        let folder_id = folder.id.clone();
+                        folder.requests.push(req);
+                        let _ = self.save();
+                        self.set_status(format!("Saved to folder '{}'", folder_name));
+
+                        // Expand collection and folder
+                        if !self.collection_expanded.contains(&col_id) {
+                            self.collection_expanded.push(col_id);
+                        }
+                        if !self.folder_expanded.contains(&folder_id) {
+                            self.folder_expanded.push(folder_id);
+                        }
+                    } else {
+                        // Fallback: save to collection root
+                        self.data.collections[ci].requests.push(req);
+                        let _ = self.save();
+                        self.set_status(format!("Saved to '{}'", col_name));
+                    }
+                }
+                _ => {
+                    // Save to collection root
+                    self.data.collections[ci].requests.push(req);
+                    let _ = self.save();
+                    self.set_status(format!("Saved to '{}'", col_name));
+
+                    if !self.collection_expanded.contains(&col_id) {
+                        self.collection_expanded.push(col_id);
+                    }
+                }
             }
 
-            // Compute flat sidebar index of the newly added request
-            let mut idx = 0;
-            for (i, col) in self.data.collections.iter().enumerate() {
-                if i == ci {
-                    self.sidebar_selected = idx + col.requests.len();
-                    break;
-                }
-                idx += 1; // collection title row
-                if self.collection_expanded.contains(&col.id) {
-                    idx += col.requests.len();
+            // Recompute sidebar index for newly added item
+            let items = collect_sidebar_items(self);
+            // The new item is the last Request-type item in this collection
+            for (i, item) in items.iter().enumerate().rev() {
+                if let SidebarItemType::Request(item_ci, _, _) = item {
+                    if *item_ci == ci {
+                        self.sidebar_selected = i;
+                        break;
+                    }
                 }
             }
 
@@ -937,6 +1220,7 @@ impl App {
         let col = Collection {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.to_string(),
+            folders: vec![],
             requests: vec![],
             created_at: chrono::Local::now(),
         };
@@ -949,25 +1233,50 @@ impl App {
         if self.sidebar_tab != SidebarTab::Collections {
             return;
         }
-        let mut idx = 0;
-        for (ci, col) in self.data.collections.iter().enumerate() {
-            if self.sidebar_selected == idx {
+        let item_type = match get_selected_item_type(self) {
+            Some(t) => t,
+            None => return,
+        };
+        match item_type {
+            SidebarItemType::Collection(ci) => {
+                let name = self
+                    .data
+                    .collections
+                    .get(ci)
+                    .map(|c| c.name.clone())
+                    .unwrap_or_default();
                 self.pending_delete = Some(DeleteTarget::Collection(ci));
                 self.dialog_option_selected = false;
-                self.open_dialog(DialogType::DeleteConfirm, col.name.clone());
-                return;
+                self.open_dialog(DialogType::DeleteConfirm, name);
             }
-            idx += 1;
-            if self.collection_expanded.contains(&col.id) {
-                for (ri, req) in col.requests.iter().enumerate() {
-                    if self.sidebar_selected == idx {
-                        self.pending_delete = Some(DeleteTarget::Request(ci, ri));
-                        self.dialog_option_selected = false;
-                        self.open_dialog(DialogType::DeleteConfirm, req.name.clone());
-                        return;
-                    }
-                    idx += 1;
+            SidebarItemType::Request(ci, ref path, ri) => {
+                let name = if path.is_empty() {
+                    self.data
+                        .collections
+                        .get(ci)
+                        .and_then(|col| col.requests.get(ri))
+                        .map(|r| r.name.clone())
+                        .unwrap_or_default()
+                } else {
+                    self.data
+                        .collections
+                        .get(ci)
+                        .and_then(|col| get_folder_by_path(&col.folders, path))
+                        .and_then(|folder| folder.requests.get(ri))
+                        .map(|r| r.name.clone())
+                        .unwrap_or_default()
+                };
+                if path.is_empty() {
+                    self.pending_delete = Some(DeleteTarget::Request(ci, ri));
+                } else {
+                    self.pending_delete = Some(DeleteTarget::FolderRequest(ci, path.clone(), ri));
                 }
+                self.dialog_option_selected = false;
+                self.open_dialog(DialogType::DeleteConfirm, name);
+            }
+            SidebarItemType::Folder(_, _) => {
+                // For now, don't support deleting folders from sidebar
+                self.set_status("Folder deletion not supported yet".to_string());
             }
         }
     }
@@ -990,7 +1299,9 @@ impl App {
                     }
                 }
                 DeleteTarget::Request(ci, ri) => {
-                    if ci < self.data.collections.len() && ri < self.data.collections[ci].requests.len() {
+                    if ci < self.data.collections.len()
+                        && ri < self.data.collections[ci].requests.len()
+                    {
                         let name = self.data.collections[ci].requests[ri].name.clone();
                         self.data.collections[ci].requests.remove(ri);
                         let _ = self.save();
@@ -998,6 +1309,24 @@ impl App {
                         let max = self.sidebar_item_count();
                         if self.sidebar_selected >= max && max > 0 {
                             self.sidebar_selected = max - 1;
+                        }
+                    }
+                }
+                DeleteTarget::FolderRequest(ci, ref path, ri) => {
+                    if ci < self.data.collections.len() {
+                        if let Some(folder) =
+                            get_folder_by_path_mut(&mut self.data.collections[ci].folders, path)
+                        {
+                            if ri < folder.requests.len() {
+                                let name = folder.requests[ri].name.clone();
+                                folder.requests.remove(ri);
+                                let _ = self.save();
+                                self.set_status(format!("Deleted request '{}'", name));
+                                let max = self.sidebar_item_count();
+                                if self.sidebar_selected >= max && max > 0 {
+                                    self.sidebar_selected = max - 1;
+                                }
+                            }
                         }
                     }
                 }
@@ -1023,5 +1352,486 @@ impl App {
             self.set_status("No collection selected");
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{Folder, HttpMethod, Request};
+    use std::collections::HashMap;
+
+    /// Helper to build a test App with no demo data.
+    fn make_test_app() -> App {
+        App {
+            running: true,
+            input_mode: InputMode::Normal,
+            active_pane: ActivePane::Sidebar,
+            sidebar_tab: SidebarTab::Collections,
+            request_tab: RequestTab::Headers,
+            response_tab: ResponseTab::Body,
+            data: AppData::default(),
+            storage: crate::storage::Storage::new().unwrap(),
+            current_request: Request::default(),
+            response: None,
+            editing_field: None,
+            edit_buffer: String::new(),
+            cursor_pos: 0,
+            sidebar_selected: 0,
+            collection_expanded: Vec::new(),
+            folder_expanded: Vec::new(),
+            param_list_state: ratatui::widgets::TableState::default(),
+            header_list_state: ratatui::widgets::TableState::default(),
+            status_message: None,
+            tick: 0,
+            loading: false,
+            response_scroll: (0, 0),
+            pending_send: false,
+            dialog_type: DialogType::None,
+            dialog_buffer: String::new(),
+            dialog_cursor: 0,
+            dialog_message: String::new(),
+            dialog_option_selected: false,
+            pending_window_prefix: false,
+            pending_window_expiry: 0,
+            current_request_source: None,
+            pending_delete: None,
+            history_manager: HistoryManager::default(),
+            history_storage: HistoryStorage::new(std::path::PathBuf::from("/tmp/helios_test")),
+            history_selected: 0,
+        }
+    }
+
+    #[test]
+    fn test_sidebar_item_count_no_folders() {
+        let mut app = make_test_app();
+        app.data.collections = vec![
+            Collection {
+                id: "c1".to_string(),
+                name: "Col1".to_string(),
+                folders: vec![],
+                requests: vec![Request::new("R1", HttpMethod::GET, "http://a.com")],
+                created_at: chrono::Local::now(),
+            },
+            Collection {
+                id: "c2".to_string(),
+                name: "Col2".to_string(),
+                folders: vec![],
+                requests: vec![],
+                created_at: chrono::Local::now(),
+            },
+        ];
+        // Nothing expanded: 2 items (2 collection headers)
+        assert_eq!(app.sidebar_item_count(), 2);
+
+        // Expand c1: 3 items (2 headers + 1 request)
+        app.collection_expanded.push("c1".to_string());
+        assert_eq!(app.sidebar_item_count(), 3);
+    }
+
+    #[test]
+    fn test_sidebar_item_count_with_folders() {
+        let mut app = make_test_app();
+        app.data.collections = vec![Collection {
+            id: "c1".to_string(),
+            name: "Col1".to_string(),
+            folders: vec![Folder {
+                id: "f1".to_string(),
+                name: "Folder1".to_string(),
+                seq: 0,
+                variables: HashMap::new(),
+                docs: String::new(),
+                folders: vec![],
+                requests: vec![Request::new("FR1", HttpMethod::POST, "http://b.com")],
+                created_at: chrono::Local::now(),
+            }],
+            requests: vec![Request::new("R1", HttpMethod::GET, "http://a.com")],
+            created_at: chrono::Local::now(),
+        }];
+
+        // Nothing expanded: 1 item (collection header)
+        assert_eq!(app.sidebar_item_count(), 1);
+
+        // Expand collection only: 3 items (col + root req + folder header)
+        app.collection_expanded.push("c1".to_string());
+        assert_eq!(app.sidebar_item_count(), 3);
+
+        // Expand folder too: 4 items (col + root req + folder + folder req)
+        app.folder_expanded.push("f1".to_string());
+        assert_eq!(app.sidebar_item_count(), 4);
+    }
+
+    #[test]
+    fn test_sidebar_item_count_nested_folders() {
+        let mut app = make_test_app();
+        app.data.collections = vec![Collection {
+            id: "c1".to_string(),
+            name: "Col1".to_string(),
+            folders: vec![Folder {
+                id: "f1".to_string(),
+                name: "Outer".to_string(),
+                seq: 0,
+                variables: HashMap::new(),
+                docs: String::new(),
+                folders: vec![Folder {
+                    id: "f2".to_string(),
+                    name: "Inner".to_string(),
+                    seq: 0,
+                    variables: HashMap::new(),
+                    docs: String::new(),
+                    folders: vec![],
+                    requests: vec![Request::new("IR1", HttpMethod::GET, "http://inner.com")],
+                    created_at: chrono::Local::now(),
+                }],
+                requests: vec![Request::new("OR1", HttpMethod::POST, "http://outer.com")],
+                created_at: chrono::Local::now(),
+            }],
+            requests: vec![],
+            created_at: chrono::Local::now(),
+        }];
+
+        // Expand all
+        app.collection_expanded.push("c1".to_string());
+        app.folder_expanded.push("f1".to_string());
+        app.folder_expanded.push("f2".to_string());
+        // col + outer(folder) + outer_req + inner(folder) + inner_req = 5
+        assert_eq!(app.sidebar_item_count(), 5);
+    }
+
+    #[test]
+    fn test_collect_sidebar_items_ordering() {
+        let mut app = make_test_app();
+        app.data.collections = vec![Collection {
+            id: "c1".to_string(),
+            name: "Col1".to_string(),
+            folders: vec![Folder {
+                id: "f1".to_string(),
+                name: "Folder1".to_string(),
+                seq: 0,
+                variables: HashMap::new(),
+                docs: String::new(),
+                folders: vec![],
+                requests: vec![Request::new("FR1", HttpMethod::POST, "http://b.com")],
+                created_at: chrono::Local::now(),
+            }],
+            requests: vec![Request::new("R1", HttpMethod::GET, "http://a.com")],
+            created_at: chrono::Local::now(),
+        }];
+        app.collection_expanded.push("c1".to_string());
+        app.folder_expanded.push("f1".to_string());
+
+        let items = collect_sidebar_items(&app);
+        assert_eq!(items.len(), 4);
+        assert_eq!(items[0], SidebarItemType::Collection(0));
+        assert_eq!(items[1], SidebarItemType::Request(0, Vec::new(), 0)); // root request R1
+        assert_eq!(items[2], SidebarItemType::Folder(0, vec![0])); // folder f1
+        assert_eq!(items[3], SidebarItemType::Request(0, vec![0], 0)); // folder request FR1
+    }
+
+    #[test]
+    fn test_get_selected_item_type() {
+        let mut app = make_test_app();
+        app.data.collections = vec![Collection {
+            id: "c1".to_string(),
+            name: "Col1".to_string(),
+            folders: vec![Folder {
+                id: "f1".to_string(),
+                name: "Folder1".to_string(),
+                seq: 0,
+                variables: HashMap::new(),
+                docs: String::new(),
+                folders: vec![],
+                requests: vec![Request::new("FR1", HttpMethod::POST, "http://b.com")],
+                created_at: chrono::Local::now(),
+            }],
+            requests: vec![Request::new("R1", HttpMethod::GET, "http://a.com")],
+            created_at: chrono::Local::now(),
+        }];
+        app.collection_expanded.push("c1".to_string());
+        app.folder_expanded.push("f1".to_string());
+
+        // idx 0 = collection
+        app.sidebar_selected = 0;
+        assert_eq!(
+            get_selected_item_type(&app),
+            Some(SidebarItemType::Collection(0))
+        );
+
+        // idx 1 = root request
+        app.sidebar_selected = 1;
+        assert_eq!(
+            get_selected_item_type(&app),
+            Some(SidebarItemType::Request(0, Vec::new(), 0))
+        );
+
+        // idx 2 = folder
+        app.sidebar_selected = 2;
+        assert_eq!(
+            get_selected_item_type(&app),
+            Some(SidebarItemType::Folder(0, vec![0]))
+        );
+
+        // idx 3 = folder request
+        app.sidebar_selected = 3;
+        assert_eq!(
+            get_selected_item_type(&app),
+            Some(SidebarItemType::Request(0, vec![0], 0))
+        );
+    }
+
+    #[test]
+    fn test_try_load_selected_request_root() {
+        let mut app = make_test_app();
+        let req = Request::new("R1", HttpMethod::GET, "http://a.com");
+        app.data.collections = vec![Collection {
+            id: "c1".to_string(),
+            name: "Col1".to_string(),
+            folders: vec![],
+            requests: vec![req.clone()],
+            created_at: chrono::Local::now(),
+        }];
+        app.collection_expanded.push("c1".to_string());
+
+        // Select root request (idx 1)
+        app.sidebar_selected = 1;
+        assert!(app.try_load_selected_collection_request());
+        assert_eq!(app.current_request.name, "R1");
+        assert_eq!(app.current_request_source, Some(RequestSource::Root(0, 0)));
+
+        // Select collection header (idx 0) - should return false
+        app.sidebar_selected = 0;
+        assert!(!app.try_load_selected_collection_request());
+    }
+
+    #[test]
+    fn test_try_load_selected_request_folder() {
+        let mut app = make_test_app();
+        let req = Request::new("FR1", HttpMethod::POST, "http://b.com");
+        app.data.collections = vec![Collection {
+            id: "c1".to_string(),
+            name: "Col1".to_string(),
+            folders: vec![Folder {
+                id: "f1".to_string(),
+                name: "Folder1".to_string(),
+                seq: 0,
+                variables: HashMap::new(),
+                docs: String::new(),
+                folders: vec![],
+                requests: vec![req.clone()],
+                created_at: chrono::Local::now(),
+            }],
+            requests: vec![],
+            created_at: chrono::Local::now(),
+        }];
+        app.collection_expanded.push("c1".to_string());
+        app.folder_expanded.push("f1".to_string());
+
+        // Select folder request (idx 2: col=0, folder=1, folder_req=2)
+        app.sidebar_selected = 2;
+        assert!(app.try_load_selected_collection_request());
+        assert_eq!(app.current_request.name, "FR1");
+        assert_eq!(
+            app.current_request_source,
+            Some(RequestSource::Folder(0, vec![0], 0))
+        );
+    }
+
+    #[test]
+    fn test_toggle_expand_collection() {
+        let mut app = make_test_app();
+        app.data.collections = vec![Collection {
+            id: "c1".to_string(),
+            name: "Col1".to_string(),
+            folders: vec![],
+            requests: vec![],
+            created_at: chrono::Local::now(),
+        }];
+
+        // Not expanded initially
+        app.sidebar_selected = 0;
+        app.toggle_expand();
+        assert!(app.collection_expanded.contains(&"c1".to_string()));
+
+        // Toggle again - should collapse
+        app.toggle_expand();
+        assert!(!app.collection_expanded.contains(&"c1".to_string()));
+    }
+
+    #[test]
+    fn test_toggle_expand_folder() {
+        let mut app = make_test_app();
+        app.data.collections = vec![Collection {
+            id: "c1".to_string(),
+            name: "Col1".to_string(),
+            folders: vec![Folder {
+                id: "f1".to_string(),
+                name: "Folder1".to_string(),
+                seq: 0,
+                variables: HashMap::new(),
+                docs: String::new(),
+                folders: vec![],
+                requests: vec![],
+                created_at: chrono::Local::now(),
+            }],
+            requests: vec![],
+            created_at: chrono::Local::now(),
+        }];
+        app.collection_expanded.push("c1".to_string());
+
+        // Select the folder (idx 1)
+        app.sidebar_selected = 1;
+        app.toggle_expand();
+        assert!(app.folder_expanded.contains(&"f1".to_string()));
+
+        // Toggle again
+        app.toggle_expand();
+        assert!(!app.folder_expanded.contains(&"f1".to_string()));
+    }
+
+    #[test]
+    fn test_get_folder_by_path() {
+        let folders = vec![
+            Folder {
+                id: "f1".to_string(),
+                name: "First".to_string(),
+                seq: 0,
+                variables: HashMap::new(),
+                docs: String::new(),
+                folders: vec![Folder {
+                    id: "f1_1".to_string(),
+                    name: "Nested".to_string(),
+                    seq: 0,
+                    variables: HashMap::new(),
+                    docs: String::new(),
+                    folders: vec![],
+                    requests: vec![],
+                    created_at: chrono::Local::now(),
+                }],
+                requests: vec![],
+                created_at: chrono::Local::now(),
+            },
+            Folder {
+                id: "f2".to_string(),
+                name: "Second".to_string(),
+                seq: 1,
+                variables: HashMap::new(),
+                docs: String::new(),
+                folders: vec![],
+                requests: vec![],
+                created_at: chrono::Local::now(),
+            },
+        ];
+
+        assert_eq!(get_folder_by_path(&folders, &[0]).unwrap().name, "First");
+        assert_eq!(get_folder_by_path(&folders, &[1]).unwrap().name, "Second");
+        assert_eq!(
+            get_folder_by_path(&folders, &[0, 0]).unwrap().name,
+            "Nested"
+        );
+        assert!(get_folder_by_path(&folders, &[]).is_none());
+        assert!(get_folder_by_path(&folders, &[5]).is_none());
+    }
+
+    #[test]
+    fn test_delete_folder_request() {
+        let mut app = make_test_app();
+        let req = Request::new("FR1", HttpMethod::POST, "http://b.com");
+        app.data.collections = vec![Collection {
+            id: "c1".to_string(),
+            name: "Col1".to_string(),
+            folders: vec![Folder {
+                id: "f1".to_string(),
+                name: "Folder1".to_string(),
+                seq: 0,
+                variables: HashMap::new(),
+                docs: String::new(),
+                folders: vec![],
+                requests: vec![req],
+                created_at: chrono::Local::now(),
+            }],
+            requests: vec![],
+            created_at: chrono::Local::now(),
+        }];
+        app.collection_expanded.push("c1".to_string());
+        app.folder_expanded.push("f1".to_string());
+
+        // Select folder request (idx 2)
+        app.sidebar_selected = 2;
+        app.delete_selected_item();
+        assert!(app.pending_delete.is_some());
+        match app.pending_delete {
+            Some(DeleteTarget::FolderRequest(0, ref path, 0)) => {
+                assert_eq!(path, &vec![0]);
+            }
+            other => panic!("Expected FolderRequest, got {:?}", other),
+        }
+
+        app.execute_pending_delete();
+        assert_eq!(app.data.collections[0].folders[0].requests.len(), 0);
+    }
+
+    #[test]
+    fn test_sync_current_request_to_source_root() {
+        let mut app = make_test_app();
+        app.data.collections = vec![Collection {
+            id: "c1".to_string(),
+            name: "Col1".to_string(),
+            folders: vec![],
+            requests: vec![Request::new("R1", HttpMethod::GET, "http://a.com")],
+            created_at: chrono::Local::now(),
+        }];
+        app.current_request = Request::new("R1-Modified", HttpMethod::POST, "http://b.com");
+        app.current_request_source = Some(RequestSource::Root(0, 0));
+
+        app.sync_current_request_to_source();
+        assert_eq!(app.data.collections[0].requests[0].name, "R1-Modified");
+        assert_eq!(app.data.collections[0].requests[0].method, HttpMethod::POST);
+    }
+
+    #[test]
+    fn test_sync_current_request_to_source_folder() {
+        let mut app = make_test_app();
+        app.data.collections = vec![Collection {
+            id: "c1".to_string(),
+            name: "Col1".to_string(),
+            folders: vec![Folder {
+                id: "f1".to_string(),
+                name: "Folder1".to_string(),
+                seq: 0,
+                variables: HashMap::new(),
+                docs: String::new(),
+                folders: vec![],
+                requests: vec![Request::new("FR1", HttpMethod::GET, "http://a.com")],
+                created_at: chrono::Local::now(),
+            }],
+            requests: vec![],
+            created_at: chrono::Local::now(),
+        }];
+        app.current_request = Request::new("FR1-Modified", HttpMethod::PUT, "http://c.com");
+        app.current_request_source = Some(RequestSource::Folder(0, vec![0], 0));
+
+        app.sync_current_request_to_source();
+        assert_eq!(
+            app.data.collections[0].folders[0].requests[0].name,
+            "FR1-Modified"
+        );
+        assert_eq!(
+            app.data.collections[0].folders[0].requests[0].method,
+            HttpMethod::PUT
+        );
+    }
+
+    #[test]
+    fn test_request_source_equality() {
+        assert_eq!(RequestSource::Root(0, 1), RequestSource::Root(0, 1));
+        assert_ne!(RequestSource::Root(0, 1), RequestSource::Root(0, 2));
+        assert_eq!(
+            RequestSource::Folder(0, vec![0], 1),
+            RequestSource::Folder(0, vec![0], 1)
+        );
+        assert_ne!(
+            RequestSource::Root(0, 1),
+            RequestSource::Folder(0, vec![], 1)
+        );
     }
 }

@@ -56,7 +56,10 @@ fn handle_normal(app: &mut App, key: event::KeyEvent) {
         Action::Quit => app.running = false,
         Action::SaveRequest => app.save_current_request_to_selected_collection(),
         Action::ExportCollection => {
-            app.open_dialog(DialogType::ExportCollection, "Export format [json/postman]:");
+            app.open_dialog(
+                DialogType::ExportCollection,
+                "Export format [json/postman]:",
+            );
         }
         Action::NewCollection => {
             app.open_dialog(DialogType::NewCollection, "New collection name:");
@@ -69,7 +72,10 @@ fn handle_normal(app: &mut App, key: event::KeyEvent) {
             if app.history_manager.get_all_entries().is_empty() {
                 app.set_status("No history entries yet. Send some requests first!");
             } else {
-                app.open_dialog(DialogType::History, "历史记录 (j/k 选择, Enter 加载, Esc 取消):");
+                app.open_dialog(
+                    DialogType::History,
+                    "历史记录 (j/k 选择, Enter 加载, Esc 取消):",
+                );
                 app.history_selected = 0;
             }
         }
@@ -88,37 +94,40 @@ fn handle_normal(app: &mut App, key: event::KeyEvent) {
         }
         Action::SidebarExpand => {
             if app.sidebar_tab == crate::tui::app::SidebarTab::Collections {
-                if let Some(ci) = app.get_selected_collection_index() {
-                    let col = &app.data.collections[ci];
-                    if !app.collection_expanded.contains(&col.id) {
-                        app.collection_expanded.push(col.id.clone());
-                    }
-                }
+                app.toggle_expand();
             }
         }
         Action::SidebarCollapse => {
             if app.sidebar_tab == crate::tui::app::SidebarTab::Collections {
-                if let Some(ci) = app.get_selected_collection_index() {
-                    let col = &app.data.collections[ci];
-                    app.collection_expanded.retain(|id| id != &col.id);
-                }
+                // For collapse, just toggle - if already expanded it will collapse
+                app.toggle_expand();
             }
         }
-        Action::SidebarLoad => {
-            match app.sidebar_tab {
-                crate::tui::app::SidebarTab::Collections => {
-                    if app.try_load_selected_collection_request() {
-                        app.active_pane = crate::tui::app::ActivePane::UrlBar;
+        Action::SidebarLoad => match app.sidebar_tab {
+            crate::tui::app::SidebarTab::Collections => {
+                use crate::tui::app::get_selected_item_type;
+                use crate::tui::app::SidebarItemType;
+                match get_selected_item_type(app) {
+                    Some(SidebarItemType::Folder(_, _)) | Some(SidebarItemType::Collection(_)) => {
+                        app.toggle_expand();
                     }
-                }
-                crate::tui::app::SidebarTab::Environments => {
-                    app.activate_environment(app.sidebar_selected);
+                    Some(SidebarItemType::Request(_, _, _)) => {
+                        if app.try_load_selected_collection_request() {
+                            app.active_pane = crate::tui::app::ActivePane::UrlBar;
+                        }
+                    }
+                    None => {}
                 }
             }
-        }
+            crate::tui::app::SidebarTab::Environments => {
+                app.activate_environment(app.sidebar_selected);
+            }
+        },
         Action::SidebarDelete => app.delete_selected_item(),
         Action::SidebarTabCollections => app.sidebar_tab = crate::tui::app::SidebarTab::Collections,
-        Action::SidebarTabEnvironments => app.sidebar_tab = crate::tui::app::SidebarTab::Environments,
+        Action::SidebarTabEnvironments => {
+            app.sidebar_tab = crate::tui::app::SidebarTab::Environments
+        }
 
         // URL Bar
         Action::CycleMethodNext => app.cycle_method(),
@@ -214,8 +223,12 @@ fn handle_normal(app: &mut App, key: event::KeyEvent) {
         Action::ScrollDown => app.response_scroll.1 = app.response_scroll.1.saturating_add(1),
         Action::PageUp => app.response_scroll.1 = app.response_scroll.1.saturating_sub(10),
         Action::PageDown => app.response_scroll.1 = app.response_scroll.1.saturating_add(10),
-        Action::ScrollHalfPageUp => app.response_scroll.1 = app.response_scroll.1.saturating_sub(20),
-        Action::ScrollHalfPageDown => app.response_scroll.1 = app.response_scroll.1.saturating_add(20),
+        Action::ScrollHalfPageUp => {
+            app.response_scroll.1 = app.response_scroll.1.saturating_sub(20)
+        }
+        Action::ScrollHalfPageDown => {
+            app.response_scroll.1 = app.response_scroll.1.saturating_add(20)
+        }
         Action::ScrollTop => app.response_scroll.1 = 0,
         Action::ScrollBottom => app.response_scroll.1 = u16::MAX,
         Action::CopyBody => {
@@ -225,7 +238,11 @@ fn handle_normal(app: &mut App, key: event::KeyEvent) {
                     crate::tui::app::ResponseTab::Headers => {
                         let mut entries: Vec<_> = resp.headers.iter().collect();
                         entries.sort_by(|a, b| a.0.cmp(b.0));
-                        entries.iter().map(|(k, v)| format!("{}: {}", k, v)).collect::<Vec<_>>().join("\n")
+                        entries
+                            .iter()
+                            .map(|(k, v)| format!("{}: {}", k, v))
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     }
                 };
                 match crate::utils::copy_to_clipboard(&text) {
@@ -257,9 +274,7 @@ fn handle_editing(app: &mut App, key: event::KeyEvent) {
 
 fn handle_dialog(app: &mut App, key: event::KeyEvent) {
     // Choice dialogs (DeleteConfirm, History) use ←/→ to select, Enter to confirm
-    if app.dialog_type == DialogType::DeleteConfirm
-        || app.dialog_type == DialogType::History
-    {
+    if app.dialog_type == DialogType::DeleteConfirm || app.dialog_type == DialogType::History {
         match key.code {
             KeyCode::Enter => {
                 if app.dialog_type == DialogType::History {
@@ -327,7 +342,8 @@ fn handle_dialog(app: &mut App, key: event::KeyEvent) {
                 match dtype {
                     DialogType::ExportCollection => {
                         if let Some(content) = app.export_collection(&value) {
-                            let filename = format!("{}.json", app.current_request.name.replace(' ', "_"));
+                            let filename =
+                                format!("{}.json", app.current_request.name.replace(' ', "_"));
                             if let Err(e) = std::fs::write(&filename, &content) {
                                 app.set_status(format!("Failed to write file: {}", e));
                             } else {

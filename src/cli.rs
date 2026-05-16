@@ -44,7 +44,12 @@ pub enum Commands {
     Export {
         #[arg(help = "Collection name or ID")]
         name: String,
-        #[arg(short, long, default_value = "json", help = "Export format (json, postman)")]
+        #[arg(
+            short,
+            long,
+            default_value = "json",
+            help = "Export format (json, postman)"
+        )]
         format: String,
         #[arg(short, long, help = "Output file path")]
         output: Option<String>,
@@ -53,7 +58,12 @@ pub enum Commands {
     Import {
         #[arg(help = "File path to import")]
         file: String,
-        #[arg(short, long, default_value = "auto", help = "Import format (auto, json, postman)")]
+        #[arg(
+            short,
+            long,
+            default_value = "auto",
+            help = "Import format (auto, json, postman)"
+        )]
         format: String,
     },
     #[command(about = "Initialize a new Helios project in current directory")]

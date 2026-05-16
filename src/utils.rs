@@ -22,7 +22,14 @@ pub fn format_json(json_str: &str) -> String {
 
 pub fn truncate(s: &str, max_len: usize) -> String {
     if s.chars().count() > max_len {
-        format!("{}...", &s[..s.char_indices().nth(max_len).map(|(i, _)| i).unwrap_or(s.len())])
+        format!(
+            "{}...",
+            &s[..s
+                .char_indices()
+                .nth(max_len)
+                .map(|(i, _)| i)
+                .unwrap_or(s.len())]
+        )
     } else {
         s.to_string()
     }
@@ -54,7 +61,10 @@ mod tests {
     #[test]
     fn test_replace_variables_simple() {
         let mut vars = HashMap::new();
-        vars.insert("base_url".to_string(), "https://api.example.com".to_string());
+        vars.insert(
+            "base_url".to_string(),
+            "https://api.example.com".to_string(),
+        );
 
         let result = replace_variables("{{base_url}}/users", &vars);
         assert_eq!(result, "https://api.example.com/users");
