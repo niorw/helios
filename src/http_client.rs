@@ -77,6 +77,14 @@ pub async fn send_request(req: &Request) -> Result<Response> {
             }
         }
         BodyType::None => {}
+        BodyType::Graphql => {
+            let gql_body = serde_json::json!({
+                "query": req.graphql_query.as_deref().unwrap_or(""),
+                "variables": req.graphql_variables.as_ref().and_then(|v| serde_json::from_str(v).ok()).unwrap_or(serde_json::Value::Null)
+            });
+            builder = builder.header("Content-Type", "application/json");
+            builder = builder.body(gql_body.to_string());
+        }
     }
 
     match &req.auth {

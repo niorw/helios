@@ -36,6 +36,7 @@ pub enum BodyType {
     Form,
     Text,
     Xml,
+    Graphql,
 }
 
 impl std::fmt::Display for BodyType {
@@ -46,6 +47,7 @@ impl std::fmt::Display for BodyType {
             BodyType::Form => write!(f, "form"),
             BodyType::Text => write!(f, "text"),
             BodyType::Xml => write!(f, "xml"),
+            BodyType::Graphql => write!(f, "graphql"),
         }
     }
 }
@@ -74,6 +76,10 @@ pub struct Request {
     pub body: String,
     pub body_type: BodyType,
     pub auth: Auth,
+    #[serde(default)]
+    pub graphql_query: Option<String>,
+    #[serde(default)]
+    pub graphql_variables: Option<String>,
 }
 
 impl Request {
@@ -299,6 +305,32 @@ mod tests {
             }
             _ => panic!("Expected Basic auth"),
         }
+    }
+
+    #[test]
+    fn test_body_type_graphql_display() {
+        assert_eq!(BodyType::Graphql.to_string(), "graphql");
+    }
+
+    #[test]
+    fn test_request_graphql_fields() {
+        let mut req = Request::default();
+        req.graphql_query = Some("query { users { id name } }".to_string());
+        req.graphql_variables = Some(r#"{"limit":10}"#.to_string());
+        req.body_type = BodyType::Graphql;
+        assert!(req.graphql_query.is_some());
+        assert_eq!(req.body_type, BodyType::Graphql);
+    }
+
+    #[test]
+    fn test_request_graphql_serialization() {
+        let mut req = Request::default();
+        req.graphql_query = Some("{ hello }".to_string());
+        req.body_type = BodyType::Graphql;
+        let json = serde_json::to_string(&req).unwrap();
+        let loaded: Request = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.graphql_query, Some("{ hello }".to_string()));
+        assert_eq!(loaded.body_type, BodyType::Graphql);
     }
 
     #[test]

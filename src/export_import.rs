@@ -152,7 +152,7 @@ pub fn import_postman(data: &str) -> Result<Collection> {
                 params: vec![],
                 body,
                 body_type,
-                auth: Auth::None,
+                auth: Auth::None,..Default::default()
             }
         })
         .collect();

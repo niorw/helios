@@ -187,7 +187,7 @@ impl App {
                     params: vec![],
                     body: body.to_string(),
                     body_type,
-                    auth: Auth::None,
+                    auth: Auth::None,..Default::default()
                 }
             };
 
@@ -717,7 +717,8 @@ impl App {
             BodyType::Json => BodyType::Form,
             BodyType::Form => BodyType::Text,
             BodyType::Text => BodyType::Xml,
-            BodyType::Xml => BodyType::None,
+            BodyType::Xml => BodyType::Graphql,
+            BodyType::Graphql => BodyType::None,
         };
     }
 
