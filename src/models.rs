@@ -2,6 +2,32 @@ use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Simple base64 encoding for Basic auth (no external dependency).
+fn base64_encode(input: &str) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes = input.as_bytes();
+    let mut result = String::new();
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
+        result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(triple & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum HttpMethod {
@@ -36,6 +62,8 @@ pub enum BodyType {
     Form,
     Text,
     Xml,
+    Graphql,
+    FormData,
 }
 
 impl std::fmt::Display for BodyType {
@@ -46,6 +74,8 @@ impl std::fmt::Display for BodyType {
             BodyType::Form => write!(f, "form"),
             BodyType::Text => write!(f, "text"),
             BodyType::Xml => write!(f, "xml"),
+            BodyType::Graphql => write!(f, "graphql"),
+            BodyType::FormData => write!(f, "form-data"),
         }
     }
 }
@@ -74,6 +104,24 @@ pub struct Request {
     pub body: String,
     pub body_type: BodyType,
     pub auth: Auth,
+    #[serde(default)]
+    pub graphql_query: Option<String>,
+    #[serde(default)]
+    pub graphql_variables: Option<String>,
+    #[serde(default)]
+    pub form_data: Vec<FormDataItem>,
+    #[serde(default)]
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct FormDataItem {
+    pub key: String,
+    pub value: String,
+    #[serde(default)]
+    pub is_file: bool,
+    #[serde(default)]
+    pub file_path: Option<String>,
 }
 
 impl Request {
@@ -85,6 +133,42 @@ impl Request {
             url: url.to_string(),
             ..Default::default()
         }
+    }
+
+    /// Export this request as a curl command string.
+    pub fn to_curl(&self) -> String {
+        let mut parts = vec!["curl".to_string()];
+
+        // Method
+        parts.push(format!("-X {}", self.method));
+
+        // Headers (skip disabled)
+        for h in &self.headers {
+            if h.enabled {
+                parts.push(format!("-H '{}: {}'", h.key, h.value));
+            }
+        }
+
+        // Auth headers
+        match &self.auth {
+            Auth::Bearer { token } => {
+                parts.push(format!("-H 'Authorization: Bearer {}'", token));
+            }
+            Auth::Basic { username, password } => {
+                parts.push(format!("-H 'Authorization: Basic {}'", base64_encode(&format!("{}:{}", username, password))));
+            }
+            Auth::None => {}
+        }
+
+        // Body
+        if !self.body.is_empty() {
+            parts.push(format!("--data '{}'", self.body.replace('\'', "'\\''")));
+        }
+
+        // URL (last)
+        parts.push(format!("'{}'", self.url));
+
+        parts.join(" \\\n  ")
     }
 }
 
@@ -127,6 +211,55 @@ pub struct AppData {
     pub environments: Vec<Environment>,
     pub history: Vec<HistoryItem>,
     pub active_env_id: Option<String>,
+    pub global_variables: HashMap<String, String>,
+}
+
+/// A single step in a scenario that references a request by index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScenarioStep {
+    /// Index into the request list for the collection.
+    pub request_index: usize,
+    /// Delay in milliseconds before executing this step (0 = no delay).
+    pub delay_ms: u64,
+    /// If true, remaining steps are skipped when this step fails.
+    pub skip_on_fail: bool,
+    /// Index of the step this step depends on; its response vars are injected.
+    pub depends_on: Option<usize>,
+}
+
+impl Default for ScenarioStep {
+    fn default() -> Self {
+        Self {
+            request_index: 0,
+            delay_ms: 0,
+            skip_on_fail: false,
+            depends_on: None,
+        }
+    }
+}
+
+/// Result of searching requests across collections.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub collection_index: usize,
+    pub request_index: usize,
+    pub collection_name: String,
+    pub request_name: String,
+    pub request_url: String,
+    pub method: HttpMethod,
+}
+
+impl Default for SearchResult {
+    fn default() -> Self {
+        Self {
+            collection_index: 0,
+            request_index: 0,
+            collection_name: String::new(),
+            request_name: String::new(),
+            request_url: String::new(),
+            method: HttpMethod::default(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -202,6 +335,36 @@ mod tests {
         assert!(data.environments.is_empty());
         assert!(data.history.is_empty());
         assert!(data.active_env_id.is_none());
+        assert!(data.global_variables.is_empty());
+    }
+
+    #[test]
+    fn test_global_variables_set_and_get() {
+        let mut data: AppData = Default::default();
+        data.global_variables.insert("api_key".to_string(), "abc123".to_string());
+        assert_eq!(data.global_variables.get("api_key"), Some(&"abc123".to_string()));
+        assert_eq!(data.global_variables.len(), 1);
+    }
+
+    #[test]
+    fn test_global_variables_overwrite() {
+        let mut data: AppData = Default::default();
+        data.global_variables.insert("key".to_string(), "val1".to_string());
+        data.global_variables.insert("key".to_string(), "val2".to_string());
+        assert_eq!(data.global_variables.get("key"), Some(&"val2".to_string()));
+        assert_eq!(data.global_variables.len(), 1);
+    }
+
+    #[test]
+    fn test_global_variables_serialization() {
+        let mut data: AppData = Default::default();
+        data.global_variables.insert("token".to_string(), "secret".to_string());
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("global_variables"));
+        assert!(json.contains("token"));
+        assert!(json.contains("secret"));
+        let deserialized: AppData = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.global_variables.get("token"), Some(&"secret".to_string()));
     }
 
     #[test]
@@ -231,10 +394,132 @@ mod tests {
     }
 
     #[test]
+    fn test_body_type_graphql_display() {
+        assert_eq!(BodyType::Graphql.to_string(), "graphql");
+    }
+
+    #[test]
+    fn test_request_graphql_fields() {
+        let mut req = Request::default();
+        req.graphql_query = Some("query { users { id name } }".to_string());
+        req.graphql_variables = Some(r#"{"limit":10}"#.to_string());
+        req.body_type = BodyType::Graphql;
+        assert!(req.graphql_query.is_some());
+        assert_eq!(req.body_type, BodyType::Graphql);
+    }
+
+    #[test]
+    fn test_request_graphql_serialization() {
+        let mut req = Request::default();
+        req.graphql_query = Some("{ hello }".to_string());
+        req.body_type = BodyType::Graphql;
+        let json = serde_json::to_string(&req).unwrap();
+        let loaded: Request = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.graphql_query, Some("{ hello }".to_string()));
+        assert_eq!(loaded.body_type, BodyType::Graphql);
+    }
+
+    #[test]
+    fn test_form_data_item_default() {
+        let item = FormDataItem::default();
+        assert_eq!(item.key, "");
+        assert!(!item.is_file);
+    }
+
+    #[test]
+    fn test_form_data_serialization() {
+        let item = FormDataItem { key: "f".into(), value: "v".into(), is_file: true, file_path: Some("/tmp".into()) };
+        let json = serde_json::to_string(&item).unwrap();
+        let loaded: FormDataItem = serde_json::from_str(&json).unwrap();
+        assert!(loaded.is_file);
+    }
+
+    #[test]
+    fn test_body_type_form_data_display() {
+        assert_eq!(BodyType::FormData.to_string(), "form-data");
+    }
+
+    #[test]
+    fn test_request_notes_default_empty() {
+        let req = Request::default();
+        assert_eq!(req.notes, "");
+    }
+
+    #[test]
+    fn test_request_notes_serialization() {
+        let mut req = Request::default();
+        req.notes = "my note".to_string();
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("my note"));
+    }
+
+    #[test]
+    fn test_request_notes_roundtrip() {
+        let mut req = Request::default();
+        req.notes = "test note".to_string();
+        let json = serde_json::to_string(&req).unwrap();
+        let loaded: Request = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.notes, "test note");
+    }
+
+    #[test]
     fn test_response_default() {
         let resp: Response = Default::default();
         assert_eq!(resp.status, 0);
         assert_eq!(resp.body, "");
         assert_eq!(resp.duration_ms, 0);
+    }
+
+    #[test]
+    fn test_to_curl_get_basic() {
+        let req = Request::new("Test", HttpMethod::GET, "https://example.com/api");
+        let curl = req.to_curl();
+        assert!(curl.contains("curl"), "should start with curl: {}", curl);
+        assert!(curl.contains("https://example.com/api"), "should contain URL: {}", curl);
+        assert!(curl.contains("-X GET") || curl.contains("'GET'"), "should specify GET method: {}", curl);
+    }
+
+    #[test]
+    fn test_to_curl_post_with_body() {
+        let mut req = Request::new("Test", HttpMethod::POST, "https://example.com/api");
+        req.body = r#"{"key":"value"}"#.to_string();
+        req.body_type = BodyType::Json;
+        let curl = req.to_curl();
+        assert!(curl.contains("-X POST"), "should specify POST: {}", curl);
+        assert!(curl.contains(r#"{"key":"value"}"#), "should contain body: {}", curl);
+    }
+
+    #[test]
+    fn test_to_curl_with_headers() {
+        let mut req = Request::new("Test", HttpMethod::GET, "https://example.com");
+        req.headers = vec![
+            KeyValue { key: "Accept".to_string(), value: "application/json".to_string(), enabled: true },
+            KeyValue { key: "X-Custom".to_string(), value: "test".to_string(), enabled: true },
+        ];
+        let curl = req.to_curl();
+        assert!(curl.contains("-H"), "should have -H flag: {}", curl);
+        assert!(curl.contains("Accept: application/json"), "should contain Accept header: {}", curl);
+        assert!(curl.contains("X-Custom: test"), "should contain custom header: {}", curl);
+    }
+
+    #[test]
+    fn test_to_curl_skips_disabled_headers() {
+        let mut req = Request::new("Test", HttpMethod::GET, "https://example.com");
+        req.headers = vec![
+            KeyValue { key: "Accept".to_string(), value: "application/json".to_string(), enabled: true },
+            KeyValue { key: "Disabled".to_string(), value: "skip-me".to_string(), enabled: false },
+        ];
+        let curl = req.to_curl();
+        assert!(curl.contains("Accept"), "should contain enabled header");
+        assert!(!curl.contains("skip-me"), "should NOT contain disabled header");
+    }
+
+    #[test]
+    fn test_to_curl_with_bearer_auth() {
+        let mut req = Request::new("Test", HttpMethod::GET, "https://example.com");
+        req.auth = Auth::Bearer { token: "mytoken123".to_string() };
+        let curl = req.to_curl();
+        assert!(curl.contains("Authorization"), "should have Authorization header: {}", curl);
+        assert!(curl.contains("Bearer mytoken123"), "should contain bearer token: {}", curl);
     }
 }

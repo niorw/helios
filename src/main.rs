@@ -1,10 +1,23 @@
+mod assertions;
 mod cli;
 mod config;
+mod curl_parser;
+mod dependency_chain;
+mod diff;
 mod export_import;
+mod extraction;
+mod har;
 mod history;
 mod http_client;
+mod jsonpath;
 mod models;
+mod openapi;
+mod report;
+mod scenario;
+mod scripting;
+mod search_tests;
 mod storage;
+mod tab_tests;
 mod tui;
 mod utils;
 
@@ -53,6 +66,7 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
                 body: body.unwrap_or_default(),
                 body_type,
                 auth: Auth::None,
+                ..Default::default()
             };
 
             println!("Sending {} {}", req.method, req.url);
@@ -237,12 +251,37 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
             };
             let col = match fmt {
                 "postman" => export_import::import_postman(&content)?,
+                "openapi" => openapi::parse_openapi(&content)?,
                 _ => export_import::import_json(&content)?,
             };
             data.collections.push(col);
             storage.save(&data)?;
             println!("Imported collection from {}", file);
         }
+        cli::Commands::Global { action } => match action {
+            cli::GlobalAction::Set { key, value } => {
+                data.global_variables.insert(key.clone(), value.clone());
+                storage.save(&data)?;
+                println!("Global variable '{}' set to '{}'.", key, value);
+            }
+            cli::GlobalAction::List => {
+                if data.global_variables.is_empty() {
+                    println!("No global variables set.");
+                } else {
+                    for (k, v) in &data.global_variables {
+                        println!("{} = {}", k, v);
+                    }
+                }
+            }
+            cli::GlobalAction::Remove { key } => {
+                if data.global_variables.remove(&key).is_some() {
+                    storage.save(&data)?;
+                    println!("Global variable '{}' removed.", key);
+                } else {
+                    println!("Global variable '{}' not found.", key);
+                }
+            }
+        },
     }
 
     Ok(())
@@ -270,3 +309,4 @@ fn parse_content_type(s: &str) -> BodyType {
         _ => BodyType::None,
     }
 }
+mod history_diff;
