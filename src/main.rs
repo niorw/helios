@@ -1,6 +1,7 @@
 mod assertions;
 mod cli;
 mod config;
+mod curl_parser;
 mod dependency_chain;
 mod diff;
 mod export_import;
