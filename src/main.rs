@@ -4,6 +4,7 @@ mod export_import;
 mod history;
 mod http_client;
 mod models;
+mod scenario;
 mod storage;
 mod tui;
 mod utils;
@@ -243,6 +244,30 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
             storage.save(&data)?;
             println!("Imported collection from {}", file);
         }
+        cli::Commands::Global { action } => match action {
+            cli::GlobalAction::Set { key, value } => {
+                data.global_variables.insert(key.clone(), value.clone());
+                storage.save(&data)?;
+                println!("Global variable '{}' set to '{}'.", key, value);
+            }
+            cli::GlobalAction::List => {
+                if data.global_variables.is_empty() {
+                    println!("No global variables set.");
+                } else {
+                    for (k, v) in &data.global_variables {
+                        println!("{} = {}", k, v);
+                    }
+                }
+            }
+            cli::GlobalAction::Remove { key } => {
+                if data.global_variables.remove(&key).is_some() {
+                    storage.save(&data)?;
+                    println!("Global variable '{}' removed.", key);
+                } else {
+                    println!("Global variable '{}' not found.", key);
+                }
+            }
+        },
     }
 
     Ok(())
