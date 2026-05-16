@@ -1,9 +1,8 @@
+use crate::history::{HistoryManager, HistoryStorage};
 use crate::models::{
-    AppData, Auth, BodyType, Collection, HistoryItem, HttpMethod, KeyValue, Request,
-    Response,
+    AppData, Auth, BodyType, Collection, HistoryItem, HttpMethod, KeyValue, Request, Response,
 };
 use crate::storage::Storage;
-use crate::history::{HistoryManager, HistoryStorage};
 use anyhow::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -61,8 +60,8 @@ pub enum DialogType {
     NewCollection,
     DeleteConfirm,
     RequestName,
-    History,           // 历史记录弹窗
-    HistorySearch,     // 历史搜索弹窗
+    History,       // 历史记录弹窗
+    HistorySearch, // 历史搜索弹窗
 }
 
 #[derive(Debug, Clone)]
@@ -110,18 +109,22 @@ pub struct App {
 
     pub current_request_source: Option<(usize, usize)>, // (collection_index, request_index)
     pub pending_delete: Option<DeleteTarget>,
-    
+
     // History feature
     pub history_manager: HistoryManager,
     pub history_storage: HistoryStorage,
     pub history_selected: usize,
+
+    // 标签过滤
+    pub tag_filter: Option<String>,  // 当前过滤标签（None=不过滤）
+    pub available_tags: Vec<String>, // 所有可用标签
 }
 
 impl App {
     pub fn new() -> Result<Self> {
         let storage = Storage::new()?;
         let data = storage.load()?;
-        
+
         // Initialize history storage
         let proj_dirs = directories::ProjectDirs::from("com", "helios", "helios")
             .ok_or_else(|| anyhow::anyhow!("Could not determine project directories"))?;
@@ -164,6 +167,8 @@ impl App {
             history_manager,
             history_storage,
             history_selected: 0,
+            tag_filter: None,
+            available_tags: Vec::new(),
         };
 
         app.current_request.url = crate::config::DEFAULT_URL.to_string();
@@ -177,13 +182,26 @@ impl App {
 
         // Seed demo data if empty
         if app.data.collections.is_empty() {
-            let mk = |name: &str, method: HttpMethod, url: &str, headers: Vec<(&str, &str)>, body: &str, body_type: BodyType| -> Request {
+            let mk = |name: &str,
+                      method: HttpMethod,
+                      url: &str,
+                      headers: Vec<(&str, &str)>,
+                      body: &str,
+                      body_type: BodyType|
+             -> Request {
                 Request {
                     id: uuid::Uuid::new_v4().to_string(),
                     name: name.to_string(),
                     method,
                     url: url.to_string(),
-                    headers: headers.into_iter().map(|(k, v)| KeyValue { key: k.to_string(), value: v.to_string(), enabled: true }).collect(),
+                    headers: headers
+                        .into_iter()
+                        .map(|(k, v)| KeyValue {
+                            key: k.to_string(),
+                            value: v.to_string(),
+                            enabled: true,
+                        })
+                        .collect(),
                     params: vec![],
                     body: body.to_string(),
                     body_type,
@@ -192,6 +210,7 @@ impl App {
                     graphql_variables: None,
                     form_data: vec![],
                     notes: String::new(),
+                    tags: vec![],
                 }
             };
 
@@ -327,7 +346,10 @@ impl App {
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>) {
-        self.status_message = Some((msg.into(), self.tick + crate::config::STATUS_MESSAGE_TIMEOUT_TICKS));
+        self.status_message = Some((
+            msg.into(),
+            self.tick + crate::config::STATUS_MESSAGE_TIMEOUT_TICKS,
+        ));
     }
 
     pub fn tick(&mut self) {
@@ -366,7 +388,11 @@ impl App {
                 let mut count = self.data.collections.len();
                 for c in &self.data.collections {
                     if self.collection_expanded.contains(&c.id) {
-                        count += c.requests.len();
+                        count += c
+                            .requests
+                            .iter()
+                            .filter(|r| self.matches_tag_filter(r))
+                            .count();
                     }
                 }
                 count
@@ -401,6 +427,9 @@ impl App {
             idx += 1;
             if self.collection_expanded.contains(&col.id) {
                 for (ri, req) in col.requests.iter().enumerate() {
+                    if !self.matches_tag_filter(req) {
+                        continue;
+                    }
                     if self.sidebar_selected == idx {
                         let name = req.name.clone();
                         self.load_request(req.clone(), Some((ci, ri)));
@@ -471,11 +500,7 @@ impl App {
         if idx < self.current_request.params.len() {
             self.current_request.params.remove(idx);
             let max = self.current_request.params.len().saturating_sub(1);
-            let sel = self
-                .param_list_state
-                .selected()
-                .unwrap_or(0)
-                .min(max);
+            let sel = self.param_list_state.selected().unwrap_or(0).min(max);
             self.param_list_state.select(Some(sel));
         }
     }
@@ -484,11 +509,7 @@ impl App {
         if idx < self.current_request.headers.len() {
             self.current_request.headers.remove(idx);
             let max = self.current_request.headers.len().saturating_sub(1);
-            let sel = self
-                .header_list_state
-                .selected()
-                .unwrap_or(0)
-                .min(max);
+            let sel = self.header_list_state.selected().unwrap_or(0).min(max);
             self.header_list_state.select(Some(sel));
         }
     }
@@ -579,8 +600,9 @@ impl App {
                     }
                 }
                 EditingField::AuthToken => {
-                    self.current_request.auth =
-                        Auth::Bearer { token: self.edit_buffer.clone() };
+                    self.current_request.auth = Auth::Bearer {
+                        token: self.edit_buffer.clone(),
+                    };
                 }
                 EditingField::AuthUsername => {
                     let password = match &self.current_request.auth {
@@ -653,7 +675,11 @@ impl App {
     }
 
     fn prev_byte_boundary(&self, s: &str, pos: usize) -> usize {
-        s[..pos].char_indices().last().map(|(idx, _)| idx).unwrap_or(0)
+        s[..pos]
+            .char_indices()
+            .last()
+            .map(|(idx, _)| idx)
+            .unwrap_or(0)
     }
 
     // Dialog text editing (same Unicode-safe logic)
@@ -668,7 +694,8 @@ impl App {
     pub fn dialog_delete_char(&mut self) {
         if self.dialog_cursor > 0 && self.dialog_cursor <= self.dialog_buffer.len() {
             let prev = self.prev_byte_boundary(&self.dialog_buffer, self.dialog_cursor);
-            self.dialog_buffer.replace_range(prev..self.dialog_cursor, "");
+            self.dialog_buffer
+                .replace_range(prev..self.dialog_cursor, "");
             self.dialog_cursor = prev;
         }
     }
@@ -734,10 +761,20 @@ impl App {
     pub fn cycle_header_key(&mut self, idx: usize) {
         if let Some(h) = self.current_request.headers.get_mut(idx) {
             let common = vec![
-                "Content-Type", "Accept", "Authorization", "User-Agent",
-                "Cache-Control", "X-Request-Id", "X-Api-Key", "Referer", "Origin",
+                "Content-Type",
+                "Accept",
+                "Authorization",
+                "User-Agent",
+                "Cache-Control",
+                "X-Request-Id",
+                "X-Api-Key",
+                "Referer",
+                "Origin",
             ];
-            let pos = common.iter().position(|&k| k == h.key).unwrap_or(common.len() - 1);
+            let pos = common
+                .iter()
+                .position(|&k| k == h.key)
+                .unwrap_or(common.len() - 1);
             let next = common[(pos + 1) % common.len()];
             h.key = next.to_string();
             h.value = match next {
@@ -754,15 +791,28 @@ impl App {
     pub fn cycle_header_value(&mut self, idx: usize) {
         if let Some(h) = self.current_request.headers.get_mut(idx) {
             let presets: Vec<&str> = match h.key.as_str() {
-                "Content-Type" => vec!["application/json", "application/x-www-form-urlencoded", "text/plain", "application/xml", "multipart/form-data"],
+                "Content-Type" => vec![
+                    "application/json",
+                    "application/x-www-form-urlencoded",
+                    "text/plain",
+                    "application/xml",
+                    "multipart/form-data",
+                ],
                 "Accept" => vec!["application/json", "text/html", "application/xml", "*/*"],
                 "Authorization" => vec!["Bearer ", "Basic "],
                 "Cache-Control" => vec!["no-cache", "no-store", "max-age=0", "must-revalidate"],
-                "User-Agent" => vec![crate::config::DEFAULT_USER_AGENT, "Mozilla/5.0", "curl/7.64.1"],
+                "User-Agent" => vec![
+                    crate::config::DEFAULT_USER_AGENT,
+                    "Mozilla/5.0",
+                    "curl/7.64.1",
+                ],
                 _ => vec![""],
             };
             if !presets.is_empty() {
-                let pos = presets.iter().position(|&v| h.value == v).unwrap_or(presets.len() - 1);
+                let pos = presets
+                    .iter()
+                    .position(|&v| h.value == v)
+                    .unwrap_or(presets.len() - 1);
                 let next = presets[(pos + 1) % presets.len()];
                 h.value = next.to_string();
             }
@@ -771,10 +821,65 @@ impl App {
 
     pub fn cycle_auth_type(&mut self) {
         self.current_request.auth = match self.current_request.auth {
-            Auth::None => Auth::Bearer { token: String::new() },
-            Auth::Bearer { .. } => Auth::Basic { username: String::new(), password: String::new() },
+            Auth::None => Auth::Bearer {
+                token: String::new(),
+            },
+            Auth::Bearer { .. } => Auth::Basic {
+                username: String::new(),
+                password: String::new(),
+            },
             Auth::Basic { .. } => Auth::None,
         };
+    }
+
+    // ─── 标签过滤 ──────────────────────────────────────────────
+
+    /// 刷新可用标签列表（从所有集合中收集）
+    pub fn refresh_available_tags(&mut self) {
+        self.available_tags = crate::models::collect_all_tags(&self.data.collections);
+    }
+
+    /// 切换标签过滤：按 T 循环切换标签，再按一次清除过滤
+    pub fn cycle_tag_filter(&mut self) {
+        if self.available_tags.is_empty() {
+            self.refresh_available_tags();
+        }
+        match &self.tag_filter {
+            None => {
+                // 无过滤 → 设为第一个标签
+                if let Some(tag) = self.available_tags.first() {
+                    self.tag_filter = Some(tag.clone());
+                    self.set_status(format!("Tag filter: {}", tag));
+                } else {
+                    self.set_status("No tags available");
+                }
+            }
+            Some(current) => {
+                // 找到当前标签在列表中的位置，切到下一个
+                let idx = self.available_tags.iter().position(|t| t == current);
+                match idx {
+                    Some(i) if i + 1 < self.available_tags.len() => {
+                        let next = self.available_tags[i + 1].clone();
+                        self.tag_filter = Some(next.clone());
+                        self.set_status(format!("Tag filter: {}", next));
+                    }
+                    _ => {
+                        // 已到最后一个，清除过滤
+                        self.tag_filter = None;
+                        self.set_status("Tag filter: cleared");
+                    }
+                }
+            }
+        }
+        self.sidebar_selected = 0;
+    }
+
+    /// 检查请求是否匹配当前标签过滤
+    pub fn matches_tag_filter(&self, req: &Request) -> bool {
+        match &self.tag_filter {
+            None => true,
+            Some(tag) => req.tags.contains(tag),
+        }
     }
 
     pub fn new_request(&mut self) {
@@ -887,7 +992,10 @@ impl App {
                 let req = self.current_request.clone();
                 self.data.collections[ci].requests[ri] = req;
                 let _ = self.save();
-                self.set_status(format!("Updated request in '{}'", self.data.collections[ci].name));
+                self.set_status(format!(
+                    "Updated request in '{}'",
+                    self.data.collections[ci].name
+                ));
                 self.active_pane = ActivePane::Sidebar;
                 return;
             }
@@ -960,6 +1068,9 @@ impl App {
             idx += 1;
             if self.collection_expanded.contains(&col.id) {
                 for (ri, req) in col.requests.iter().enumerate() {
+                    if !self.matches_tag_filter(req) {
+                        continue;
+                    }
                     if self.sidebar_selected == idx {
                         self.pending_delete = Some(DeleteTarget::Request(ci, ri));
                         self.dialog_option_selected = false;
@@ -990,7 +1101,9 @@ impl App {
                     }
                 }
                 DeleteTarget::Request(ci, ri) => {
-                    if ci < self.data.collections.len() && ri < self.data.collections[ci].requests.len() {
+                    if ci < self.data.collections.len()
+                        && ri < self.data.collections[ci].requests.len()
+                    {
                         let name = self.data.collections[ci].requests[ri].name.clone();
                         self.data.collections[ci].requests.remove(ri);
                         let _ = self.save();

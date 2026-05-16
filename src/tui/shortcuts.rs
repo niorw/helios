@@ -1,5 +1,5 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::tui::app::{ActivePane, RequestTab, SidebarTab};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// All possible user actions triggered by keyboard shortcuts.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -15,8 +15,8 @@ pub enum Action {
     NewCollection,
     NewRequest,
     ShowHelp,
-    ShowHistory,       // Ctrl+R 显示历史记录
-    ShowBookmarks,     // Ctrl+S 书签/收藏夹
+    ShowHistory,   // Ctrl+R 显示历史记录
+    ShowBookmarks, // Ctrl+S 书签/收藏夹
 
     // Sidebar
     SidebarNext,
@@ -27,6 +27,7 @@ pub enum Action {
     SidebarDelete,
     SidebarTabCollections,
     SidebarTabEnvironments,
+    CycleTagFilter, // T 键循环标签过滤
 
     // URL Bar
     CycleMethodNext,
@@ -82,7 +83,12 @@ pub fn parse(
             KeyCode::Char('2') => Action::SwitchPane(2),
             KeyCode::Char('3') => Action::SwitchPane(3),
             KeyCode::Char('4') => Action::SwitchPane(4),
-            _ => return (parse_normal(key, active_pane, sidebar_tab, request_tab), false),
+            _ => {
+                return (
+                    parse_normal(key, active_pane, sidebar_tab, request_tab),
+                    false,
+                )
+            }
         };
         return (action, false);
     }
@@ -162,6 +168,7 @@ fn parse_sidebar(key: KeyEvent, sidebar_tab: SidebarTab) -> Action {
         KeyCode::Char('f') if sidebar_tab == SidebarTab::Collections => Action::NewCollection,
         KeyCode::Char('c') => Action::SidebarTabCollections,
         KeyCode::Char('e') => Action::SidebarTabEnvironments,
+        KeyCode::Char('t') => Action::CycleTagFilter,
         _ => Action::None,
     }
 }
@@ -205,8 +212,12 @@ fn parse_response(key: KeyEvent) -> Action {
         KeyCode::Down => Action::ScrollDown,
         KeyCode::PageUp => Action::PageUp,
         KeyCode::PageDown => Action::PageDown,
-        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::ScrollHalfPageDown,
-        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::ScrollHalfPageUp,
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Action::ScrollHalfPageDown
+        }
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Action::ScrollHalfPageUp
+        }
         KeyCode::Char('g') => Action::ScrollTop,
         KeyCode::Char('G') => Action::ScrollBottom,
         KeyCode::Char('y') => Action::CopyBody,
@@ -229,7 +240,7 @@ pub fn help_text(
     match active_pane {
         ActivePane::Sidebar => {
             if sidebar_tab == SidebarTab::Collections {
-                "x+1/2/3/4 switch pane │ Enter load │ d delete │ i new req │ f new coll │ →/← expand │ c=coll │ e=env"
+                "x+1/2/3/4 switch pane │ Enter load │ d delete │ i new req │ f new coll │ →/← expand │ t tag │ c=coll │ e=env"
             } else {
                 "x+1/2/3/4 switch pane │ Enter activate │ ↑/↓ navigate │ c=coll │ e=env"
             }

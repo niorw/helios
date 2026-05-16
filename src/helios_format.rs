@@ -177,14 +177,32 @@ pub struct CollectionYml {
 pub fn helios_yml_to_request(yml: &HeliosYml, id: &str) -> Result<Request> {
     let method = parse_method_from_str(&yml.http.method)?;
     let body_type = parse_body_type_from_str(
-        yml.http.body.as_ref().map(|b| b.r#type.as_str()).unwrap_or("none"),
+        yml.http
+            .body
+            .as_ref()
+            .map(|b| b.r#type.as_str())
+            .unwrap_or("none"),
     );
     let auth = parse_auth_from_helios(&yml.http.auth);
 
-    let body_content = yml.http.body.as_ref().map(|b| b.content.clone()).unwrap_or_default();
+    let body_content = yml
+        .http
+        .body
+        .as_ref()
+        .map(|b| b.content.clone())
+        .unwrap_or_default();
     let graphql_query = yml.http.body.as_ref().and_then(|b| b.graphql_query.clone());
-    let graphql_variables = yml.http.body.as_ref().and_then(|b| b.graphql_variables.clone());
-    let form_data = yml.http.body.as_ref().map(|b| b.form_data.clone()).unwrap_or_default();
+    let graphql_variables = yml
+        .http
+        .body
+        .as_ref()
+        .and_then(|b| b.graphql_variables.clone());
+    let form_data = yml
+        .http
+        .body
+        .as_ref()
+        .map(|b| b.form_data.clone())
+        .unwrap_or_default();
 
     Ok(Request {
         id: id.to_string(),
@@ -200,12 +218,14 @@ pub fn helios_yml_to_request(yml: &HeliosYml, id: &str) -> Result<Request> {
         graphql_variables,
         form_data,
         notes: String::new(),
+        tags: yml.info.tags.clone(),
     })
 }
 
 /// 将内部 Request 模型转换为 HeliosYml
 pub fn request_to_helios_yml(req: &Request) -> Result<HeliosYml> {
-    let body = if req.body_type == BodyType::None && req.body.is_empty() && req.form_data.is_empty() {
+    let body = if req.body_type == BodyType::None && req.body.is_empty() && req.form_data.is_empty()
+    {
         None
     } else {
         Some(HeliosBody {
@@ -228,7 +248,7 @@ pub fn request_to_helios_yml(req: &Request) -> Result<HeliosYml> {
             name: req.name.clone(),
             r#type: "http".to_string(),
             seq: 0,
-            tags: vec![],
+            tags: req.tags.clone(),
         },
         http: HeliosHttp {
             method: method_to_yaml_str(&req.method),
@@ -240,7 +260,11 @@ pub fn request_to_helios_yml(req: &Request) -> Result<HeliosYml> {
         },
         runtime: None,
         settings: None,
-        docs: if req.notes.is_empty() { None } else { Some(req.notes.clone()) },
+        docs: if req.notes.is_empty() {
+            None
+        } else {
+            Some(req.notes.clone())
+        },
     })
 }
 
@@ -383,7 +407,8 @@ pub fn load_collection_from_dir(dir: &Path) -> Result<crate::models::Collection>
             let name = name.to_string_lossy();
             if name.ends_with(".helios.yml") {
                 if let Ok(yml) = load_helios_yml(&path) {
-                    let file_stem = path.file_stem()
+                    let file_stem = path
+                        .file_stem()
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_default()
                         .replace(".helios", "");
@@ -446,8 +471,7 @@ http:
       value: application/json
       enabled: true
 "#;
-        let result = parse_helios_yml(yaml_content)
-            .expect("解析基本请求应成功");
+        let result = parse_helios_yml(yaml_content).expect("解析基本请求应成功");
         assert_eq!(result.info.name, "获取用户列表");
         assert_eq!(result.info.r#type, "http");
         assert_eq!(result.http.method, "GET");
@@ -475,8 +499,7 @@ http:
     type: bearer
     token: my-secret-token
 "#;
-        let result = parse_helios_yml(yaml_content)
-            .expect("解析带认证请求应成功");
+        let result = parse_helios_yml(yaml_content).expect("解析带认证请求应成功");
         assert_eq!(result.http.method, "POST");
         let auth = result.http.auth.expect("应有认证配置");
         assert_eq!(auth.r#type, "bearer");
@@ -513,8 +536,7 @@ settings:
   timeout: 10000
   follow_redirects: false
 "#;
-        let result = parse_helios_yml(yaml_content)
-            .expect("解析带运行时请求应成功");
+        let result = parse_helios_yml(yaml_content).expect("解析带运行时请求应成功");
         let runtime = result.runtime.expect("应有运行时配置");
         assert_eq!(runtime.post_response.len(), 2);
         assert_eq!(runtime.post_response[0].action, "extract");
@@ -567,10 +589,8 @@ settings:
             docs: Some("更新用户信息".to_string()),
         };
 
-        let yaml_str = serialize_helios_yml(&original)
-            .expect("序列化应成功");
-        let parsed = parse_helios_yml(&yaml_str)
-            .expect("反解析应成功");
+        let yaml_str = serialize_helios_yml(&original).expect("序列化应成功");
+        let parsed = parse_helios_yml(&yaml_str).expect("反解析应成功");
         assert_eq!(parsed, original);
     }
 
@@ -606,22 +626,28 @@ settings:
             docs: None,
         };
 
-        let req = helios_yml_to_request(&yml, "test-id-001")
-            .expect("转换应成功");
+        let req = helios_yml_to_request(&yml, "test-id-001").expect("转换应成功");
         assert_eq!(req.id, "test-id-001");
         assert_eq!(req.name, "获取用户");
         assert_eq!(req.method, HttpMethod::GET);
         assert_eq!(req.url, "https://api.example.com/users");
         assert_eq!(req.params.len(), 1);
-        assert_eq!(req.auth, Auth::Bearer {
-            token: "tok123".to_string(),
-        });
+        assert_eq!(
+            req.auth,
+            Auth::Bearer {
+                token: "tok123".to_string(),
+            }
+        );
     }
 
     #[test]
     fn test_request_to_helios_yml_conversion() {
         // Request 模型转 HeliosYml
-        let mut req = Request::new("创建订单", HttpMethod::POST, "https://api.example.com/orders");
+        let mut req = Request::new(
+            "创建订单",
+            HttpMethod::POST,
+            "https://api.example.com/orders",
+        );
         req.body_type = BodyType::Json;
         req.body = r#"{"item":"book"}"#.to_string();
         req.auth = Auth::Basic {
@@ -629,8 +655,7 @@ settings:
             password: "pass123".to_string(),
         };
 
-        let yml = request_to_helios_yml(&req)
-            .expect("转换应成功");
+        let yml = request_to_helios_yml(&req).expect("转换应成功");
         assert_eq!(yml.info.name, "创建订单");
         assert_eq!(yml.http.method, "POST");
         assert_eq!(yml.http.url, "https://api.example.com/orders");
@@ -669,8 +694,7 @@ http:
 "#;
         fs::write(tmp_dir.join("list-items.helios.yml"), req_yml).unwrap();
 
-        let collection = load_collection_from_dir(&tmp_dir)
-            .expect("从目录加载集合应成功");
+        let collection = load_collection_from_dir(&tmp_dir).expect("从目录加载集合应成功");
         assert_eq!(collection.name, "测试集合");
         assert_eq!(collection.requests.len(), 1);
         assert_eq!(collection.requests[0].name, "获取列表");
@@ -692,8 +716,7 @@ http:
   method: GET
   url: https://example.com
 "#;
-        let result = parse_helios_yml(minimal_yaml)
-            .expect("最简 YAML 应解析成功");
+        let result = parse_helios_yml(minimal_yaml).expect("最简 YAML 应解析成功");
         // info 的 name 应为默认空字符串
         assert_eq!(result.info.name, "");
         assert_eq!(result.http.method, "GET");
@@ -723,7 +746,11 @@ http:
             let yml = request_to_helios_yml(&req).expect("转换应成功");
             if expect_body {
                 let body = yml.http.body.as_ref().expect("应有 body");
-                assert_eq!(body.r#type, yaml_type, "BodyType {:?} 应映射为 {}", bt, yaml_type);
+                assert_eq!(
+                    body.r#type, yaml_type,
+                    "BodyType {:?} 应映射为 {}",
+                    bt, yaml_type
+                );
             }
             // BodyType::None + 空 body => 不序列化 body 字段（设计决策：省略空body）
         }
