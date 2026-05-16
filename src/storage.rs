@@ -11,8 +11,12 @@ pub struct Storage {
 
 impl Storage {
     pub fn new() -> Result<Self> {
-        let proj_dirs = ProjectDirs::from(config::APP_QUALIFIER, config::APP_ORGANIZATION, config::APP_APPLICATION)
-            .ok_or_else(|| anyhow::anyhow!("Cannot determine data directory"))?;
+        let proj_dirs = ProjectDirs::from(
+            config::APP_QUALIFIER,
+            config::APP_ORGANIZATION,
+            config::APP_APPLICATION,
+        )
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine data directory"))?;
         let data_dir = proj_dirs.data_dir().to_path_buf();
         fs::create_dir_all(&data_dir)?;
         Ok(Self { data_dir })

@@ -88,6 +88,7 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
                 let col = Collection {
                     id: uuid::Uuid::new_v4().to_string(),
                     name,
+                    folders: vec![],
                     requests: vec![],
                     created_at: chrono::Local::now(),
                 };
@@ -189,7 +190,11 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
                 .iter()
                 .find(|c| c.name == name || c.id == name)
             {
-                println!("Running collection: {} ({} requests)", col.name, col.requests.len());
+                println!(
+                    "Running collection: {} ({} requests)",
+                    col.name,
+                    col.requests.len()
+                );
                 let mut passed = 0;
                 let mut failed = 0;
                 for req in &col.requests {
@@ -215,7 +220,11 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
                 println!("Collection not found.");
             }
         }
-        cli::Commands::Export { name, format, output } => {
+        cli::Commands::Export {
+            name,
+            format,
+            output,
+        } => {
             if let Some(col) = data
                 .collections
                 .iter()

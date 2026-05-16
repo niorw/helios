@@ -1,6 +1,8 @@
 use crate::config;
-use crate::models::{Auth, HttpMethod};
-use crate::tui::app::{ActivePane, App, DialogType, EditingField, InputMode, RequestTab, SidebarTab};
+use crate::models::{Auth, Folder, HttpMethod};
+use crate::tui::app::{
+    ActivePane, App, DialogType, EditingField, InputMode, RequestTab, SidebarItemType, SidebarTab,
+};
 use chrono::{DateTime, Local};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
@@ -61,14 +63,15 @@ fn method_color(m: &HttpMethod) -> Color {
 // ─── Main Draw ───────────────────────────────────────────────────────
 pub fn draw(f: &mut Frame, app: &mut App) {
     let full = f.size();
-    f.render_widget(
-        Paragraph::new("").style(Style::default().bg(BG)),
-        full,
-    );
+    f.render_widget(Paragraph::new("").style(Style::default().bg(BG)), full);
 
     let main = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
         .split(full);
 
     draw_title_bar(f, app, main[0]);
@@ -82,7 +85,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     let right = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(6), Constraint::Percentage(44), Constraint::Percentage(50)])
+        .constraints([
+            Constraint::Length(6),
+            Constraint::Percentage(44),
+            Constraint::Percentage(50),
+        ])
         .split(body[1]);
 
     draw_urlbar(f, app, right[0]);
@@ -106,7 +113,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 fn draw_title_bar(f: &mut Frame, _app: &App, area: Rect) {
     let title = Line::from(vec![
         Span::styled(" ⚡ ", Style::default().fg(ACCENT)),
-        Span::styled(config::APP_NAME_DISPLAY, Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            config::APP_NAME_DISPLAY,
+            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+        ),
         Span::styled("  v", Style::default().fg(TEXT_DIM)),
         Span::styled(config::APP_VERSION, Style::default().fg(TEXT_DIM)),
     ]);
@@ -135,41 +145,73 @@ fn draw_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
 
     let items: Vec<ListItem> = match app.sidebar_tab {
         SidebarTab::Collections => {
+            let sidebar_items = crate::tui::app::collect_sidebar_items(app);
             let mut items = vec![];
-            let mut idx = 0;
-            for col in &app.data.collections {
+            for (idx, item_type) in sidebar_items.iter().enumerate() {
                 let sel = app.sidebar_selected == idx;
                 let style = if sel {
-                    Style::default().bg(BORDER_ACTIVE).fg(Color::Black).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .bg(BORDER_ACTIVE)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(TEXT)
                 };
-                let expanded = app.collection_expanded.contains(&col.id);
-                let icon = if expanded { "▼" } else { "▶" };
-                items.push(ListItem::new(format!("{} {}", icon, col.name)).style(style));
-                idx += 1;
-
-                if expanded {
-                    for req in &col.requests {
-                        let sel = app.sidebar_selected == idx;
-                        let style = if sel {
-                            Style::default().bg(BORDER_ACTIVE).fg(Color::Black)
+                match item_type {
+                    SidebarItemType::Collection(ci) => {
+                        let col = &app.data.collections[*ci];
+                        let expanded = app.collection_expanded.contains(&col.id);
+                        let icon = if expanded { "▼" } else { "▶" };
+                        items.push(ListItem::new(format!("{} {}", icon, col.name)).style(style));
+                    }
+                    SidebarItemType::Folder(ci, path) => {
+                        let col = &app.data.collections[*ci];
+                        let folder = crate::tui::app::get_folder_by_path(&col.folders, path);
+                        let depth = path.len();
+                        let indent = "  │ ".repeat(depth);
+                        if let Some(folder) = folder {
+                            let expanded = app.folder_expanded.contains(&folder.id);
+                            let icon = if expanded { "▼" } else { "▶" };
+                            items.push(
+                                ListItem::new(format!("{}{}📁 {}", indent, icon, folder.name))
+                                    .style(style),
+                            );
+                        }
+                    }
+                    SidebarItemType::Request(ci, path, ri) => {
+                        let col = &app.data.collections[*ci];
+                        let req = if path.is_empty() {
+                            col.requests.get(*ri)
                         } else {
-                            Style::default().fg(TEXT_DIM)
+                            let folder = crate::tui::app::get_folder_by_path(&col.folders, path);
+                            folder.and_then(|f| f.requests.get(*ri))
                         };
-                        let mcolor = method_color(&req.method);
-                        let line = Line::from(vec![
-                            Span::raw("  ├─ "),
-                            Span::styled(format!("{:6}", req.method.to_string()), Style::default().fg(mcolor)),
-                            Span::raw(format!(" {}", crate::utils::truncate(&req.name, 22))),
-                        ]);
-                        items.push(ListItem::new(line).style(style));
-                        idx += 1;
+                        let depth = path.len();
+                        let indent = "  │ ".repeat(depth);
+                        if let Some(req) = req {
+                            let sel_style = if sel {
+                                Style::default().bg(BORDER_ACTIVE).fg(Color::Black)
+                            } else {
+                                Style::default().fg(TEXT_DIM)
+                            };
+                            let mcolor = method_color(&req.method);
+                            let line = Line::from(vec![
+                                Span::raw(format!("{}  ├─ ", indent)),
+                                Span::styled(
+                                    format!("{:6}", req.method.to_string()),
+                                    Style::default().fg(mcolor),
+                                ),
+                                Span::raw(format!(" {}", crate::utils::truncate(&req.name, 22))),
+                            ]);
+                            items.push(ListItem::new(line).style(sel_style));
+                        }
                     }
                 }
             }
             if items.is_empty() {
-                items.push(ListItem::new("No collections — press f").style(Style::default().fg(TEXT_DIM)));
+                items.push(
+                    ListItem::new("No collections — press f").style(Style::default().fg(TEXT_DIM)),
+                );
             }
             items
         }
@@ -181,13 +223,22 @@ fn draw_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
             .map(|(i, e)| {
                 let sel = app.sidebar_selected == i;
                 let style = if sel {
-                    Style::default().bg(BORDER_ACTIVE).fg(Color::Black).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .bg(BORDER_ACTIVE)
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(TEXT)
                 };
                 let active = app.data.active_env_id.as_ref() == Some(&e.id);
                 let prefix = if active { "●" } else { "○" };
-                ListItem::new(format!("{} {} ({} vars)", prefix, e.name, e.variables.len())).style(style)
+                ListItem::new(format!(
+                    "{} {} ({} vars)",
+                    prefix,
+                    e.name,
+                    e.variables.len()
+                ))
+                .style(style)
             })
             .collect(),
     };
@@ -228,9 +279,11 @@ fn draw_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         let data_path = app.storage.data_dir().join(crate::config::DATA_FILE_NAME);
         let data_path_str = data_path.to_string_lossy();
 
-        let active_env = app.data.active_env_id.as_ref().and_then(|id| {
-            app.data.environments.iter().find(|e| &e.id == id)
-        });
+        let active_env = app
+            .data
+            .active_env_id
+            .as_ref()
+            .and_then(|id| app.data.environments.iter().find(|e| &e.id == id));
         let active_name = active_env.map(|e| e.name.as_str()).unwrap_or("none");
 
         let selected_env = app.data.environments.get(app.sidebar_selected);
@@ -282,7 +335,8 @@ fn draw_urlbar(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Name row
     let name_area = Rect { height: 1, ..inner };
-    let name_is_editing = app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::RequestName);
+    let name_is_editing = app.input_mode == InputMode::Editing
+        && app.editing_field == Some(EditingField::RequestName);
     let name_text = if name_is_editing {
         format!("{}▌", app.edit_buffer)
     } else if app.current_request.name.is_empty() {
@@ -308,7 +362,11 @@ fn draw_urlbar(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let top = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(10), Constraint::Min(20), Constraint::Length(10)])
+        .constraints([
+            Constraint::Length(10),
+            Constraint::Min(20),
+            Constraint::Length(10),
+        ])
         .split(action_area);
 
     // Method badge
@@ -328,18 +386,24 @@ fn draw_urlbar(f: &mut Frame, app: &mut App, area: Rect) {
     let url_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(if app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Url) {
-            Style::default().fg(ACCENT)
-        } else {
-            Style::default().fg(BORDER)
-        })
+        .border_style(
+            if app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Url)
+            {
+                Style::default().fg(ACCENT)
+            } else {
+                Style::default().fg(BORDER)
+            },
+        )
         .style(Style::default().bg(SURFACE));
-    let url_text = if app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Url) {
-        format!("{}▌", app.edit_buffer)
-    } else {
-        app.current_request.url.clone()
-    };
-    let url_para = Paragraph::new(url_text).block(url_block).style(Style::default().fg(TEXT));
+    let url_text =
+        if app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Url) {
+            format!("{}▌", app.edit_buffer)
+        } else {
+            app.current_request.url.clone()
+        };
+    let url_para = Paragraph::new(url_text)
+        .block(url_block)
+        .style(Style::default().fg(TEXT));
     f.render_widget(url_para, top[1]);
 
     // Send button
@@ -349,12 +413,16 @@ fn draw_urlbar(f: &mut Frame, app: &mut App, area: Rect) {
         .border_style(Style::default().fg(SUCCESS))
         .style(Style::default().bg(SURFACE));
     let send_btn = Paragraph::new(" SEND ")
-        .style(Style::default().fg(Color::Black).bg(SUCCESS).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(SUCCESS)
+                .add_modifier(Modifier::BOLD),
+        )
         .alignment(Alignment::Center)
         .block(send_block);
     f.render_widget(send_btn, top[2]);
 }
-
 
 // ─── Request Tabs ────────────────────────────────────────────────────
 fn draw_request_tabs(f: &mut Frame, app: &mut App, area: Rect) {
@@ -411,8 +479,14 @@ fn draw_params_table(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled("   ", Style::default().fg(TEXT_DIM))
             };
             Row::new(vec![
-                Cell::from(Span::styled(p.key.clone(), Style::default().fg(if p.enabled { TEXT } else { TEXT_DIM }))),
-                Cell::from(Span::styled(p.value.clone(), Style::default().fg(if p.enabled { TEXT } else { TEXT_DIM }))),
+                Cell::from(Span::styled(
+                    p.key.clone(),
+                    Style::default().fg(if p.enabled { TEXT } else { TEXT_DIM }),
+                )),
+                Cell::from(Span::styled(
+                    p.value.clone(),
+                    Style::default().fg(if p.enabled { TEXT } else { TEXT_DIM }),
+                )),
                 Cell::from(enabled),
             ])
             .style(style)
@@ -429,13 +503,26 @@ fn draw_params_table(f: &mut Frame, app: &mut App, area: Rect) {
     )
     .header(
         Row::new(vec![
-            Cell::from(Span::styled("Key", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
-            Cell::from(Span::styled("Value", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
-            Cell::from(Span::styled("En", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
+            Cell::from(Span::styled(
+                "Key",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )),
+            Cell::from(Span::styled(
+                "Value",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )),
+            Cell::from(Span::styled(
+                "En",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )),
         ])
         .style(Style::default().bg(SURFACE)),
     )
-    .block(Block::default().borders(Borders::BOTTOM).border_style(BORDER));
+    .block(
+        Block::default()
+            .borders(Borders::BOTTOM)
+            .border_style(BORDER),
+    );
     f.render_stateful_widget(table, area, &mut app.param_list_state);
 }
 
@@ -458,8 +545,14 @@ fn draw_headers_table(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled("   ", Style::default().fg(TEXT_DIM))
             };
             Row::new(vec![
-                Cell::from(Span::styled(h.key.clone(), Style::default().fg(if h.enabled { TEXT } else { TEXT_DIM }))),
-                Cell::from(Span::styled(h.value.clone(), Style::default().fg(if h.enabled { TEXT } else { TEXT_DIM }))),
+                Cell::from(Span::styled(
+                    h.key.clone(),
+                    Style::default().fg(if h.enabled { TEXT } else { TEXT_DIM }),
+                )),
+                Cell::from(Span::styled(
+                    h.value.clone(),
+                    Style::default().fg(if h.enabled { TEXT } else { TEXT_DIM }),
+                )),
                 Cell::from(enabled),
             ])
             .style(style)
@@ -476,13 +569,26 @@ fn draw_headers_table(f: &mut Frame, app: &mut App, area: Rect) {
     )
     .header(
         Row::new(vec![
-            Cell::from(Span::styled("Key", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
-            Cell::from(Span::styled("Value", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
-            Cell::from(Span::styled("En", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
+            Cell::from(Span::styled(
+                "Key",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )),
+            Cell::from(Span::styled(
+                "Value",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )),
+            Cell::from(Span::styled(
+                "En",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )),
         ])
         .style(Style::default().bg(SURFACE)),
     )
-    .block(Block::default().borders(Borders::BOTTOM).border_style(BORDER));
+    .block(
+        Block::default()
+            .borders(Borders::BOTTOM)
+            .border_style(BORDER),
+    );
     f.render_stateful_widget(table, area, &mut app.header_list_state);
 }
 
@@ -493,11 +599,12 @@ fn draw_body_editor(f: &mut Frame, app: &mut App, area: Rect) {
         .borders(Borders::TOP)
         .border_style(BORDER);
 
-    let text = if app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Body) {
-        format!("{}▌", app.edit_buffer)
-    } else {
-        app.current_request.body.clone()
-    };
+    let text =
+        if app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Body) {
+            format!("{}▌", app.edit_buffer)
+        } else {
+            app.current_request.body.clone()
+        };
 
     let paragraph = Paragraph::new(text)
         .block(block)
@@ -508,14 +615,20 @@ fn draw_body_editor(f: &mut Frame, app: &mut App, area: Rect) {
 
 fn draw_auth_editor(f: &mut Frame, app: &mut App, area: Rect) {
     let content = match &app.current_request.auth {
-        Auth::None => {
-            Text::from(vec![
-                Line::from(Span::styled("No authentication configured.", Style::default().fg(TEXT_DIM))),
-                Line::from(Span::styled("Press 'e' to set a Bearer token.", Style::default().fg(TEXT_DIM))),
-            ])
-        }
+        Auth::None => Text::from(vec![
+            Line::from(Span::styled(
+                "No authentication configured.",
+                Style::default().fg(TEXT_DIM),
+            )),
+            Line::from(Span::styled(
+                "Press 'e' to set a Bearer token.",
+                Style::default().fg(TEXT_DIM),
+            )),
+        ]),
         Auth::Bearer { token } => {
-            let text = if app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::AuthToken) {
+            let text = if app.input_mode == InputMode::Editing
+                && app.editing_field == Some(EditingField::AuthToken)
+            {
                 let before = &app.edit_buffer[..app.cursor_pos.min(app.edit_buffer.len())];
                 let after = &app.edit_buffer[app.cursor_pos.min(app.edit_buffer.len())..];
                 format!("{}▌{}", before, after)
@@ -534,14 +647,18 @@ fn draw_auth_editor(f: &mut Frame, app: &mut App, area: Rect) {
             ])
         }
         Auth::Basic { username, password } => {
-            let user_text = if app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::AuthUsername) {
+            let user_text = if app.input_mode == InputMode::Editing
+                && app.editing_field == Some(EditingField::AuthUsername)
+            {
                 let before = &app.edit_buffer[..app.cursor_pos.min(app.edit_buffer.len())];
                 let after = &app.edit_buffer[app.cursor_pos.min(app.edit_buffer.len())..];
                 format!("{}▌{}", before, after)
             } else {
                 username.clone()
             };
-            let pass_text = if app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::AuthPassword) {
+            let pass_text = if app.input_mode == InputMode::Editing
+                && app.editing_field == Some(EditingField::AuthPassword)
+            {
                 let before = &app.edit_buffer[..app.cursor_pos.min(app.edit_buffer.len())];
                 let after = &app.edit_buffer[app.cursor_pos.min(app.edit_buffer.len())..];
                 format!("{}▌{}", before, after)
@@ -549,9 +666,18 @@ fn draw_auth_editor(f: &mut Frame, app: &mut App, area: Rect) {
                 "*".repeat(password.len().min(20))
             };
             Text::from(vec![
-                Line::from(vec![Span::styled("Type: ", Style::default().fg(ACCENT)), Span::styled("Basic", Style::default().fg(TEXT))]),
-                Line::from(vec![Span::styled("User: ", Style::default().fg(ACCENT)), Span::styled(user_text, Style::default().fg(TEXT))]),
-                Line::from(vec![Span::styled("Pass: ", Style::default().fg(ACCENT)), Span::styled(pass_text, Style::default().fg(TEXT))]),
+                Line::from(vec![
+                    Span::styled("Type: ", Style::default().fg(ACCENT)),
+                    Span::styled("Basic", Style::default().fg(TEXT)),
+                ]),
+                Line::from(vec![
+                    Span::styled("User: ", Style::default().fg(ACCENT)),
+                    Span::styled(user_text, Style::default().fg(TEXT)),
+                ]),
+                Line::from(vec![
+                    Span::styled("Pass: ", Style::default().fg(ACCENT)),
+                    Span::styled(pass_text, Style::default().fg(TEXT)),
+                ]),
             ])
         }
     };
@@ -594,17 +720,30 @@ fn draw_response(f: &mut Frame, app: &mut App, area: Rect) {
             Span::styled("Status ", Style::default().fg(ACCENT)),
             Span::styled(
                 format!("{} {}", resp.status, resp.status_text),
-                Style::default().fg(status_color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled("  │  ", Style::default().fg(BORDER)),
             Span::styled("Time ", Style::default().fg(ACCENT)),
             Span::styled(format!("{}ms", resp.duration_ms), Style::default().fg(TEXT)),
             Span::styled("  │  ", Style::default().fg(BORDER)),
             Span::styled("Size ", Style::default().fg(ACCENT)),
-            Span::styled(format!("{} bytes", resp.body.len()), Style::default().fg(TEXT)),
+            Span::styled(
+                format!("{} bytes", resp.body.len()),
+                Style::default().fg(TEXT),
+            ),
         ]);
         let status_para = Paragraph::new(status_line);
-        f.render_widget(status_para, Rect { x: inner.x, y: inner.y + 1, width: inner.width, height: 1 });
+        f.render_widget(
+            status_para,
+            Rect {
+                x: inner.x,
+                y: inner.y + 1,
+                width: inner.width,
+                height: 1,
+            },
+        );
 
         let content_area = Rect {
             x: inner.x,
@@ -622,12 +761,14 @@ fn draw_response(f: &mut Frame, app: &mut App, area: Rect) {
                 let start = (app.response_scroll.1 as usize).min(max_scroll);
                 app.response_scroll.1 = start as u16;
 
-                let visible_lines: Vec<Line> = text.lines.into_iter()
+                let visible_lines: Vec<Line> = text
+                    .lines
+                    .into_iter()
                     .skip(start)
                     .take(content_area.height as usize)
                     .collect();
-                let paragraph = Paragraph::new(Text::from(visible_lines))
-                    .style(Style::default().bg(SURFACE));
+                let paragraph =
+                    Paragraph::new(Text::from(visible_lines)).style(Style::default().bg(SURFACE));
                 f.render_widget(paragraph, content_area);
 
                 let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
@@ -638,30 +779,37 @@ fn draw_response(f: &mut Frame, app: &mut App, area: Rect) {
                 let mut state = ScrollbarState::new(max_scroll).position(start);
                 f.render_stateful_widget(
                     scrollbar,
-                    content_area.inner(&Margin { horizontal: 0, vertical: 0 }),
+                    content_area.inner(&Margin {
+                        horizontal: 0,
+                        vertical: 0,
+                    }),
                     &mut state,
                 );
             }
             crate::tui::app::ResponseTab::Headers => {
                 let mut header_entries: Vec<_> = resp.headers.iter().collect();
                 header_entries.sort_by(|a, b| a.0.cmp(b.0));
-                let header_lines: Vec<Line> = header_entries.iter().map(|(k, v)| {
-                    Line::from(vec![
-                        Span::styled(format!("{}: ", k), Style::default().fg(ACCENT)),
-                        Span::styled((*v).clone(), Style::default().fg(TEXT)),
-                    ])
-                }).collect();
+                let header_lines: Vec<Line> = header_entries
+                    .iter()
+                    .map(|(k, v)| {
+                        Line::from(vec![
+                            Span::styled(format!("{}: ", k), Style::default().fg(ACCENT)),
+                            Span::styled((*v).clone(), Style::default().fg(TEXT)),
+                        ])
+                    })
+                    .collect();
                 let total_lines = header_lines.len();
                 let max_scroll = total_lines.saturating_sub(content_area.height as usize);
                 let start = (app.response_scroll.1 as usize).min(max_scroll);
                 app.response_scroll.1 = start as u16;
 
-                let visible_lines: Vec<Line> = header_lines.into_iter()
+                let visible_lines: Vec<Line> = header_lines
+                    .into_iter()
                     .skip(start)
                     .take(content_area.height as usize)
                     .collect();
-                let paragraph = Paragraph::new(Text::from(visible_lines))
-                    .style(Style::default().bg(SURFACE));
+                let paragraph =
+                    Paragraph::new(Text::from(visible_lines)).style(Style::default().bg(SURFACE));
                 f.render_widget(paragraph, content_area);
 
                 let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
@@ -672,12 +820,14 @@ fn draw_response(f: &mut Frame, app: &mut App, area: Rect) {
                 let mut state = ScrollbarState::new(max_scroll).position(start);
                 f.render_stateful_widget(
                     scrollbar,
-                    content_area.inner(&Margin { horizontal: 0, vertical: 0 }),
+                    content_area.inner(&Margin {
+                        horizontal: 0,
+                        vertical: 0,
+                    }),
                     &mut state,
                 );
             }
         }
-
     } else {
         let p = Paragraph::new("No response yet. Press Enter to send request.")
             .alignment(Alignment::Center)
@@ -705,8 +855,13 @@ fn highlight_json(text: &str) -> Text<'static> {
                         break;
                     }
                 }
-                spans.push(Span::styled(s, Style::default().fg(Color::Rgb(150, 255, 180))));
-            } else if c.is_numeric() || (c == '-' && chars.peek().map(|&p| p.is_numeric()).unwrap_or(false)) {
+                spans.push(Span::styled(
+                    s,
+                    Style::default().fg(Color::Rgb(150, 255, 180)),
+                ));
+            } else if c.is_numeric()
+                || (c == '-' && chars.peek().map(|&p| p.is_numeric()).unwrap_or(false))
+            {
                 let mut s = String::from(c);
                 while let Some(&ch) = chars.peek() {
                     if ch.is_numeric() || ch == '.' {
@@ -716,7 +871,10 @@ fn highlight_json(text: &str) -> Text<'static> {
                         break;
                     }
                 }
-                spans.push(Span::styled(s, Style::default().fg(Color::Rgb(255, 220, 120))));
+                spans.push(Span::styled(
+                    s,
+                    Style::default().fg(Color::Rgb(255, 220, 120)),
+                ));
             } else if c.is_alphabetic() {
                 let mut s = String::from(c);
                 while let Some(&ch) = chars.peek() {
@@ -734,7 +892,10 @@ fn highlight_json(text: &str) -> Text<'static> {
                 };
                 spans.push(Span::styled(s, Style::default().fg(color)));
             } else if "{}[],:".contains(c) {
-                spans.push(Span::styled(c.to_string(), Style::default().fg(Color::Rgb(100, 100, 130))));
+                spans.push(Span::styled(
+                    c.to_string(),
+                    Style::default().fg(Color::Rgb(100, 100, 130)),
+                ));
             } else {
                 spans.push(Span::raw(c.to_string()));
             }
@@ -755,7 +916,10 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let (msg, style) = if app.loading {
         (
             "⚡ Sending...".to_string(),
-            Style::default().bg(WARN).fg(Color::Black).add_modifier(Modifier::BOLD),
+            Style::default()
+                .bg(WARN)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
         )
     } else if let Some((msg, _)) = &app.status_message {
         (
@@ -772,12 +936,13 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
             },
             app.current_request.params.len(),
             app.current_request.headers.len(),
-            if app.data.active_env_id.is_some() { "Env:ON" } else { "Env:OFF" }
+            if app.data.active_env_id.is_some() {
+                "Env:ON"
+            } else {
+                "Env:OFF"
+            }
         );
-        (
-            info,
-            Style::default().bg(SURFACE).fg(TEXT_DIM),
-        )
+        (info, Style::default().bg(SURFACE).fg(TEXT_DIM))
     };
     let paragraph = Paragraph::new(msg).style(style);
     f.render_widget(paragraph, cols[0]);
@@ -801,7 +966,10 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
 fn draw_edit_popup(f: &mut Frame, app: &App, area: Rect) {
     let popup_area = centered_rect(70, 30, area);
     let block = Block::default()
-        .title(Span::styled(" Edit ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " Edit ",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(ACCENT))
@@ -837,7 +1005,7 @@ fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
     let popup_area = if app.dialog_type == DialogType::DeleteConfirm {
         centered_fixed(32, 7, area)
     } else if app.dialog_type == DialogType::History {
-        centered_rect(80, 70, area)  // History dialog is larger
+        centered_rect(80, 70, area) // History dialog is larger
     } else {
         centered_rect(60, 25, area)
     };
@@ -851,7 +1019,10 @@ fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
         DialogType::None => return,
     };
     let block = Block::default()
-        .title(Span::styled(title, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            title,
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(ACCENT))
@@ -868,11 +1039,20 @@ fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
         // Compact delete confirm: title + name + narrow Yes/No buttons
         let rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Length(2), Constraint::Length(1)])
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(2),
+                Constraint::Length(1),
+            ])
             .split(inner);
 
         let title_para = Paragraph::new("Delete")
-            .style(Style::default().fg(ACCENT).bg(BG).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(ACCENT)
+                    .bg(BG)
+                    .add_modifier(Modifier::BOLD),
+            )
             .alignment(Alignment::Center);
         f.render_widget(title_para, rows[0]);
 
@@ -882,19 +1062,30 @@ fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
             format!("\"{}\"", app.dialog_message)
         };
         let name = Paragraph::new(name_text)
-            .style(Style::default().fg(TEXT).bg(BG).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(TEXT)
+                    .bg(BG)
+                    .add_modifier(Modifier::BOLD),
+            )
             .alignment(Alignment::Center);
         f.render_widget(name, rows[1]);
 
         let btn_area = rows[2];
 
         let yes_style = if app.dialog_option_selected {
-            Style::default().bg(BORDER_ACTIVE).fg(Color::White).add_modifier(Modifier::BOLD)
+            Style::default()
+                .bg(BORDER_ACTIVE)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White).bg(SURFACE)
         };
         let no_style = if !app.dialog_option_selected {
-            Style::default().bg(BORDER_ACTIVE).fg(Color::White).add_modifier(Modifier::BOLD)
+            Style::default()
+                .bg(BORDER_ACTIVE)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White).bg(SURFACE)
         };
@@ -975,7 +1166,10 @@ fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
 
                     let line = Line::from(vec![
                         Span::raw(format!("{:2}  ", idx + 1)),
-                        Span::styled(format!("{:6} ", entry.request.method), style.fg(method_color)),
+                        Span::styled(
+                            format!("{:6} ", entry.request.method),
+                            style.fg(method_color),
+                        ),
                         Span::raw(crate::utils::truncate(&entry.request.url, 40)),
                         Span::raw("  "),
                         Span::styled(status_str, style.fg(status_color)),
@@ -1010,7 +1204,10 @@ fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
 fn draw_loading(f: &mut Frame, area: Rect) {
     let popup_area = centered_rect(24, 12, area);
     let block = Block::default()
-        .title(Span::styled(" Loading ", Style::default().fg(WARN).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " Loading ",
+            Style::default().fg(WARN).add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(WARN))
