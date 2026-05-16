@@ -200,7 +200,8 @@ impl App {
                     params: vec![],
                     body: body.to_string(),
                     body_type,
-                    auth: Auth::None,..Default::default()
+                    auth: Auth::None,
+                    ..Default::default()
                 }
             };
 

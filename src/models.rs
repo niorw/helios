@@ -110,6 +110,8 @@ pub struct Request {
     pub graphql_variables: Option<String>,
     #[serde(default)]
     pub form_data: Vec<FormDataItem>,
+    #[serde(default)]
+    pub notes: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -435,6 +437,29 @@ mod tests {
     #[test]
     fn test_body_type_form_data_display() {
         assert_eq!(BodyType::FormData.to_string(), "form-data");
+    }
+
+    #[test]
+    fn test_request_notes_default_empty() {
+        let req = Request::default();
+        assert_eq!(req.notes, "");
+    }
+
+    #[test]
+    fn test_request_notes_serialization() {
+        let mut req = Request::default();
+        req.notes = "my note".to_string();
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("my note"));
+    }
+
+    #[test]
+    fn test_request_notes_roundtrip() {
+        let mut req = Request::default();
+        req.notes = "test note".to_string();
+        let json = serde_json::to_string(&req).unwrap();
+        let loaded: Request = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.notes, "test note");
     }
 
     #[test]
