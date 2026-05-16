@@ -8,8 +8,6 @@ mod history;
 mod http_client;
 mod jsonpath;
 mod models;
-mod scenario;
-mod openapi;
 mod storage;
 mod tui;
 mod utils;
@@ -243,7 +241,7 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
             };
             let col = match fmt {
                 "postman" => export_import::import_postman(&content)?,
-                "openapi" => openapi::parse_openapi(&content)?,
+                "openapi" => { /* TODO: openapi module not yet merged */ anyhow::bail!("OpenAPI import not yet available") }
                 _ => export_import::import_json(&content)?,
             };
             data.collections.push(col);

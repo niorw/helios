@@ -172,7 +172,7 @@ impl Default for ScenarioStep {
 }
 
 /// Result of searching requests across collections.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchResult {
     pub collection_index: usize,
     pub request_index: usize,
@@ -182,12 +182,17 @@ pub struct SearchResult {
     pub method: HttpMethod,
 }
 
-/// Search result referencing a request within a collection.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SearchResult {
-    pub request_name: String,
-    pub collection_index: usize,
-    pub request_index: usize,
+impl Default for SearchResult {
+    fn default() -> Self {
+        Self {
+            collection_index: 0,
+            request_index: 0,
+            collection_name: String::new(),
+            request_name: String::new(),
+            request_url: String::new(),
+            method: HttpMethod::default(),
+        }
+    }
 }
 
 #[cfg(test)]
