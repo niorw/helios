@@ -1,6 +1,7 @@
 mod assertions;
 mod cli;
 mod config;
+mod extraction;
 mod export_import;
 mod history;
 mod http_client;
