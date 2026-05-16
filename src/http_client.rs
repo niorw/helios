@@ -85,6 +85,7 @@ pub async fn send_request(req: &Request) -> Result<Response> {
             builder = builder.header("Content-Type", "application/json");
             builder = builder.body(gql_body.to_string());
         }
+        BodyType::FormData => {}
     }
 
     match &req.auth {

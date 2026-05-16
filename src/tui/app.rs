@@ -718,7 +718,8 @@ impl App {
             BodyType::Form => BodyType::Text,
             BodyType::Text => BodyType::Xml,
             BodyType::Xml => BodyType::Graphql,
-            BodyType::Graphql => BodyType::None,
+            BodyType::Graphql => BodyType::FormData,
+            BodyType::FormData => BodyType::None,
         };
     }
 

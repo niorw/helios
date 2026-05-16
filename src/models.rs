@@ -37,6 +37,7 @@ pub enum BodyType {
     Text,
     Xml,
     Graphql,
+    FormData,
 }
 
 impl std::fmt::Display for BodyType {
@@ -48,6 +49,7 @@ impl std::fmt::Display for BodyType {
             BodyType::Text => write!(f, "text"),
             BodyType::Xml => write!(f, "xml"),
             BodyType::Graphql => write!(f, "graphql"),
+            BodyType::FormData => write!(f, "form-data"),
         }
     }
 }
@@ -80,6 +82,18 @@ pub struct Request {
     pub graphql_query: Option<String>,
     #[serde(default)]
     pub graphql_variables: Option<String>,
+    #[serde(default)]
+    pub form_data: Vec<FormDataItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct FormDataItem {
+    pub key: String,
+    pub value: String,
+    #[serde(default)]
+    pub is_file: bool,
+    #[serde(default)]
+    pub file_path: Option<String>,
 }
 
 impl Request {
@@ -331,6 +345,26 @@ mod tests {
         let loaded: Request = serde_json::from_str(&json).unwrap();
         assert_eq!(loaded.graphql_query, Some("{ hello }".to_string()));
         assert_eq!(loaded.body_type, BodyType::Graphql);
+    }
+
+    #[test]
+    fn test_form_data_item_default() {
+        let item = FormDataItem::default();
+        assert_eq!(item.key, "");
+        assert!(!item.is_file);
+    }
+
+    #[test]
+    fn test_form_data_serialization() {
+        let item = FormDataItem { key: "f".into(), value: "v".into(), is_file: true, file_path: Some("/tmp".into()) };
+        let json = serde_json::to_string(&item).unwrap();
+        let loaded: FormDataItem = serde_json::from_str(&json).unwrap();
+        assert!(loaded.is_file);
+    }
+
+    #[test]
+    fn test_body_type_form_data_display() {
+        assert_eq!(BodyType::FormData.to_string(), "form-data");
     }
 
     #[test]
