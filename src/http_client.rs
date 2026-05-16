@@ -172,7 +172,6 @@ pub fn auto_format_body(body: &str, body_type: &BodyType) -> String {
         _ => body.to_string(),
     }
 }
-}
 
 #[cfg(test)]
 mod tests {
