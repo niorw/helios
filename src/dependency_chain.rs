@@ -1,20 +1,7 @@
 /// 请求依赖链模块
 /// 支持请求间变量传递，依赖请求的响应自动注入到后续请求
-use crate::models::{KeyValue, Request, Response};
-use serde::{Deserialize, Serialize};
+use crate::models::{Request, Response, ScenarioStep};
 use std::collections::HashMap;
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-pub struct ScenarioStep {
-    /// 请求在集合中的索引
-    pub request_index: usize,
-    /// 步骤间延迟毫秒
-    pub delay_ms: u64,
-    /// 失败时跳过后续步骤
-    pub skip_on_fail: bool,
-    /// 依赖的步骤索引，依赖步骤的响应变量会注入到当前请求
-    pub depends_on: Option<usize>,
-}
 
 #[derive(Debug, Clone)]
 pub struct StepResult {

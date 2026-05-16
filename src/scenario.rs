@@ -1,17 +1,6 @@
 /// 测试场景编排模块
 /// 支持多请求串行执行，变量传递，失败跳过
-use crate::models::Response;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-pub struct ScenarioStep {
-    /// 请求在集合中的索引
-    pub request_index: usize,
-    /// 步骤间延迟毫秒
-    pub delay_ms: u64,
-    /// 失败时跳过后续步骤
-    pub skip_on_fail: bool,
-}
+use crate::models::{Response, ScenarioStep};
 
 #[derive(Debug, Clone)]
 pub struct StepResult {
@@ -83,7 +72,7 @@ mod tests {
 
     #[test]
     fn test_scenario_step_serialization() {
-        let step = ScenarioStep { request_index: 2, delay_ms: 500, skip_on_fail: true };
+        let step = ScenarioStep { request_index: 2, delay_ms: 500, skip_on_fail: true, depends_on: None };
         let json = serde_json::to_string(&step).unwrap();
         let loaded: ScenarioStep = serde_json::from_str(&json).unwrap();
         assert_eq!(loaded.request_index, 2);
@@ -99,9 +88,9 @@ mod tests {
     #[test]
     fn test_plan_scenario_invalid_index_with_skip() {
         let steps = vec![
-            ScenarioStep { request_index: 0, delay_ms: 0, skip_on_fail: false },
-            ScenarioStep { request_index: 99, delay_ms: 0, skip_on_fail: true },
-            ScenarioStep { request_index: 1, delay_ms: 0, skip_on_fail: false },
+            ScenarioStep { request_index: 0, delay_ms: 0, skip_on_fail: false, depends_on: None },
+            ScenarioStep { request_index: 99, delay_ms: 0, skip_on_fail: true, depends_on: None },
+            ScenarioStep { request_index: 1, delay_ms: 0, skip_on_fail: false, depends_on: None },
         ];
         let results = plan_scenario(&steps, 3);
         assert_eq!(results.len(), 3);

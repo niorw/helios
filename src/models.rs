@@ -159,6 +159,8 @@ pub struct ScenarioStep {
     pub delay_ms: u64,
     /// If true, remaining steps are skipped when this step fails.
     pub skip_on_fail: bool,
+    /// Index of the step this step depends on; its response vars are injected.
+    pub depends_on: Option<usize>,
 }
 
 impl Default for ScenarioStep {
@@ -167,6 +169,7 @@ impl Default for ScenarioStep {
             request_index: 0,
             delay_ms: 0,
             skip_on_fail: false,
+            depends_on: None,
         }
     }
 }
