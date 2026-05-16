@@ -303,3 +303,4 @@ mod har;
 mod openapi;
 mod report;
 mod scripting;
+mod scenario;
