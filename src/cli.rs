@@ -44,7 +44,12 @@ pub enum Commands {
     Export {
         #[arg(help = "Collection name or ID")]
         name: String,
-        #[arg(short, long, default_value = "json", help = "Export format (json, postman)")]
+        #[arg(
+            short,
+            long,
+            default_value = "json",
+            help = "Export format (json, postman)"
+        )]
         format: String,
         #[arg(short, long, help = "Output file path")]
         output: Option<String>,
@@ -53,7 +58,12 @@ pub enum Commands {
     Import {
         #[arg(help = "File path to import")]
         file: String,
-        #[arg(short, long, default_value = "auto", help = "Import format (auto, json, postman)")]
+        #[arg(
+            short,
+            long,
+            default_value = "auto",
+            help = "Import format (auto, json, postman)"
+        )]
         format: String,
     },
     #[command(about = "Initialize a new Helios project in current directory")]
@@ -65,6 +75,34 @@ pub enum Commands {
     Migrate {
         #[arg(long, help = "Preview migration without making changes")]
         dry_run: bool,
+    },
+    #[command(about = "Manage secret vault (密钥保险箱)")]
+    Vault {
+        #[command(subcommand)]
+        action: VaultAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum VaultAction {
+    #[command(about = "Set a secret value")]
+    Set {
+        #[arg(help = "Secret key name")]
+        key: String,
+        #[arg(help = "Secret value")]
+        value: String,
+    },
+    #[command(about = "Get a secret value (shows the value)")]
+    Get {
+        #[arg(help = "Secret key name")]
+        key: String,
+    },
+    #[command(about = "List all secret names (does not show values)")]
+    List,
+    #[command(about = "Delete a secret")]
+    Delete {
+        #[arg(help = "Secret key name")]
+        key: String,
     },
 }
 

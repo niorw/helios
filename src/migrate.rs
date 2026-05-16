@@ -232,14 +232,26 @@ mod tests {
         assert_eq!(loaded.collections.len(), 2);
 
         // 按名字查找集合（顺序可能不固定）
-        let users_col = loaded.collections.iter().find(|c| c.name == "用户API").expect("应有用户API集合");
-        let orders_col = loaded.collections.iter().find(|c| c.name == "订单API").expect("应有订单API集合");
+        let users_col = loaded
+            .collections
+            .iter()
+            .find(|c| c.name == "用户API")
+            .expect("应有用户API集合");
+        let orders_col = loaded
+            .collections
+            .iter()
+            .find(|c| c.name == "订单API")
+            .expect("应有订单API集合");
 
         assert_eq!(users_col.requests.len(), 2);
         assert_eq!(orders_col.requests.len(), 1);
 
         // 验证请求详情 — 按名字查找
-        let create_req = users_col.requests.iter().find(|r| r.name == "创建用户").expect("应有创建用户请求");
+        let create_req = users_col
+            .requests
+            .iter()
+            .find(|r| r.name == "创建用户")
+            .expect("应有创建用户请求");
         assert_eq!(create_req.method, HttpMethod::POST);
         assert_eq!(create_req.body_type, BodyType::Json);
         assert_eq!(

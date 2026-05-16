@@ -107,14 +107,14 @@ pub fn export_collection_postman(col: &Collection) -> Result<String> {
 }
 
 pub fn import_json(data: &str) -> Result<Collection> {
-    let col: Collection = serde_json::from_str(data)
-        .context("Failed to parse as native JSON format")?;
+    let col: Collection =
+        serde_json::from_str(data).context("Failed to parse as native JSON format")?;
     Ok(col)
 }
 
 pub fn import_postman(data: &str) -> Result<Collection> {
-    let postman: PostmanCollection = serde_json::from_str(data)
-        .context("Failed to parse as Postman collection")?;
+    let postman: PostmanCollection =
+        serde_json::from_str(data).context("Failed to parse as Postman collection")?;
 
     let requests: Vec<Request> = postman
         .item
