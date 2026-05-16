@@ -299,8 +299,9 @@ fn parse_content_type(s: &str) -> BodyType {
         _ => BodyType::None,
     }
 }
+mod dependency_chain;
 mod har;
 mod openapi;
 mod report;
-mod scripting;
 mod scenario;
+mod scripting;
