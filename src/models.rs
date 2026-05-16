@@ -164,7 +164,11 @@ mod tests {
 
     #[test]
     fn test_request_new() {
-        let req = Request::new("Test Request", HttpMethod::POST, "https://api.example.com/users");
+        let req = Request::new(
+            "Test Request",
+            HttpMethod::POST,
+            "https://api.example.com/users",
+        );
         assert_eq!(req.name, "Test Request");
         assert_eq!(req.method, HttpMethod::POST);
         assert_eq!(req.url, "https://api.example.com/users");

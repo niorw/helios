@@ -36,3 +36,14 @@ chrono = { version = "0.4", features = ["serde"] }
 serde_urlencoded = "0.7"
 serde_yaml = "0.9"
 tempfile = "3.10"
+
+# Vault (密钥保险箱)
+aes-gcm = "0.10"
+rand = "0.8"
+pbkdf2 = { version = "0.12", features = ["simple"] }
+sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = "2"

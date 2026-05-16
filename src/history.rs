@@ -94,12 +94,13 @@ impl HistoryManager {
     /// Search entries by URL or method
     pub fn search(&self, query: &str) -> Vec<&HistoryEntry> {
         let query = query.to_lowercase();
-        self
-            .entries
+        self.entries
             .iter()
             .filter(|e| {
                 e.request.url.to_lowercase().contains(&query)
-                    || format!("{}", e.request.method).to_lowercase().contains(&query)
+                    || format!("{}", e.request.method)
+                        .to_lowercase()
+                        .contains(&query)
             })
             .collect()
     }
@@ -175,7 +176,7 @@ impl HistoryStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{HttpMethod};
+    use crate::models::HttpMethod;
 
     fn create_test_request(url: &str, method: HttpMethod) -> Request {
         Request::new("Test", method, url)
@@ -207,11 +208,11 @@ mod tests {
     #[test]
     fn test_history_entry_with_response() {
         let request = create_test_request("https://api.example.com/users", HttpMethod::GET);
-        let response = create_test_response(200, "{\"data\": []}");  // 12 bytes
+        let response = create_test_response(200, "{\"data\": []}"); // 12 bytes
         let entry = HistoryEntry::new(request).with_response(&response);
 
         assert_eq!(entry.response_status, Some(200));
-        assert_eq!(entry.response_size, Some(12));  // 实际长度是12
+        assert_eq!(entry.response_size, Some(12)); // 实际长度是12
         assert_eq!(entry.duration_ms, Some(100));
     }
 
@@ -258,7 +259,7 @@ mod tests {
 
         let req1 = create_test_request("https://api.example.com/users", HttpMethod::GET);
         let req2 = create_test_request("https://api.github.com/repos", HttpMethod::POST);
-        let req3 = create_test_request("https://api.example.com/articles", HttpMethod::GET);  // 避免 "posts" 包含 "post"
+        let req3 = create_test_request("https://api.example.com/articles", HttpMethod::GET); // 避免 "posts" 包含 "post"
 
         manager.add_entry(HistoryEntry::new(req1));
         manager.add_entry(HistoryEntry::new(req2));
@@ -267,7 +268,7 @@ mod tests {
         let results = manager.search("example");
         assert_eq!(results.len(), 2);
 
-        let results = manager.search("POST");  // 只匹配 req2 的 method
+        let results = manager.search("POST"); // 只匹配 req2 的 method
         assert_eq!(results.len(), 1);
 
         let results = manager.search("nonexistent");
@@ -306,7 +307,7 @@ mod tests {
     #[test]
     fn test_history_manager_clear() {
         let mut manager = HistoryManager::new();
-        
+
         for i in 0..5 {
             let request = create_test_request(&format!("https://api{}.com", i), HttpMethod::GET);
             manager.add_entry(HistoryEntry::new(request));
@@ -321,13 +322,13 @@ mod tests {
     fn test_history_storage_save_and_load() {
         use std::env;
         use std::fs;
-        
+
         let temp_dir = env::temp_dir().join("helios_test_history");
         let _ = fs::remove_dir_all(&temp_dir);
-        
+
         let storage = HistoryStorage::new(temp_dir.clone());
         let mut manager = HistoryManager::new();
-        
+
         let request = create_test_request("https://api.example.com/users", HttpMethod::GET);
         let response = create_test_response(200, "{\"data\": []}");
         let entry = HistoryEntry::new(request).with_response(&response);
@@ -339,7 +340,10 @@ mod tests {
         // Load
         let loaded = storage.load().unwrap();
         assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded.entries[0].request.url, "https://api.example.com/users");
+        assert_eq!(
+            loaded.entries[0].request.url,
+            "https://api.example.com/users"
+        );
         assert_eq!(loaded.entries[0].response_status, Some(200));
 
         // Cleanup

@@ -10,6 +10,7 @@ mod models;
 mod storage;
 mod tui;
 mod utils;
+pub mod vault;
 
 use anyhow::Result;
 use clap::Parser;
@@ -189,7 +190,11 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
                 .iter()
                 .find(|c| c.name == name || c.id == name)
             {
-                println!("Running collection: {} ({} requests)", col.name, col.requests.len());
+                println!(
+                    "Running collection: {} ({} requests)",
+                    col.name,
+                    col.requests.len()
+                );
                 let mut passed = 0;
                 let mut failed = 0;
                 for req in &col.requests {
@@ -215,7 +220,11 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
                 println!("Collection not found.");
             }
         }
-        cli::Commands::Export { name, format, output } => {
+        cli::Commands::Export {
+            name,
+            format,
+            output,
+        } => {
             if let Some(col) = data
                 .collections
                 .iter()
