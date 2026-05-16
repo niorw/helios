@@ -11,8 +11,8 @@
 //!       ...
 
 use crate::helios_format::{
-    helios_yml_to_request, load_collection_from_dir, request_to_helios_yml,
-    save_helios_yml, HeliosInfo, HeliosYml,
+    helios_yml_to_request, load_collection_from_dir, request_to_helios_yml, save_helios_yml,
+    HeliosInfo, HeliosYml,
 };
 use crate::models::{AppData, Collection, Request};
 use anyhow::{Context, Result};
@@ -195,13 +195,7 @@ impl FileStorage {
 fn slugify(name: &str) -> String {
     name.to_lowercase()
         .chars()
-        .map(|c| {
-            if c.is_alphanumeric() {
-                c
-            } else {
-                '-'
-            }
-        })
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
         .collect::<String>()
         .split('-')
         .filter(|s| !s.is_empty())
@@ -275,6 +269,7 @@ mod tests {
             graphql_variables: None,
             form_data: vec![],
             notes: String::new(),
+            tags: vec![],
         };
 
         storage.save_request("api", &req).unwrap();
@@ -307,6 +302,7 @@ mod tests {
             graphql_variables: None,
             form_data: vec![],
             notes: String::new(),
+            tags: vec![],
         };
         storage.save_request("col-a", &req).unwrap();
 
@@ -337,6 +333,7 @@ mod tests {
                     graphql_variables: None,
                     form_data: vec![],
                     notes: String::new(),
+                    tags: vec![],
                 }],
                 created_at: chrono::Local::now(),
             }],
@@ -380,6 +377,7 @@ mod tests {
             graphql_variables: None,
             form_data: vec![],
             notes: String::new(),
+            tags: vec![],
         };
 
         storage.save_request("api", &req).unwrap();
