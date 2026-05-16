@@ -56,6 +56,16 @@ pub enum Commands {
         #[arg(short, long, default_value = "auto", help = "Import format (auto, json, postman)")]
         format: String,
     },
+    #[command(about = "Initialize a new Helios project in current directory")]
+    Init {
+        #[arg(help = "Project name (defaults to directory name)")]
+        name: Option<String>,
+    },
+    #[command(about = "Migrate legacy JSON data to file-system format")]
+    Migrate {
+        #[arg(long, help = "Preview migration without making changes")]
+        dry_run: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

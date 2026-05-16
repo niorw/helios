@@ -36,6 +36,8 @@ pub enum BodyType {
     Form,
     Text,
     Xml,
+    Graphql,
+    FormData,
 }
 
 impl std::fmt::Display for BodyType {
@@ -46,6 +48,8 @@ impl std::fmt::Display for BodyType {
             BodyType::Form => write!(f, "form"),
             BodyType::Text => write!(f, "text"),
             BodyType::Xml => write!(f, "xml"),
+            BodyType::Graphql => write!(f, "graphql"),
+            BodyType::FormData => write!(f, "form-data"),
         }
     }
 }
@@ -74,6 +78,14 @@ pub struct Request {
     pub body: String,
     pub body_type: BodyType,
     pub auth: Auth,
+    #[serde(default)]
+    pub graphql_query: Option<String>,
+    #[serde(default)]
+    pub graphql_variables: Option<String>,
+    #[serde(default)]
+    pub form_data: Vec<crate::helios_format::FormDataItem>,
+    #[serde(default)]
+    pub notes: String,
 }
 
 impl Request {

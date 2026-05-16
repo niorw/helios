@@ -188,6 +188,10 @@ impl App {
                     body: body.to_string(),
                     body_type,
                     auth: Auth::None,
+                    graphql_query: None,
+                    graphql_variables: None,
+                    form_data: vec![],
+                    notes: String::new(),
                 }
             };
 
@@ -315,6 +319,10 @@ impl App {
 
     pub fn save(&self) -> Result<()> {
         self.storage.save(&self.data)?;
+        // 同时写入文件系统格式（双写，渐进式迁移）
+        if let Ok(file_storage) = crate::file_storage::FileStorage::with_default_path() {
+            let _ = file_storage.save_app_data(&self.data);
+        }
         Ok(())
     }
 
@@ -717,7 +725,9 @@ impl App {
             BodyType::Json => BodyType::Form,
             BodyType::Form => BodyType::Text,
             BodyType::Text => BodyType::Xml,
-            BodyType::Xml => BodyType::None,
+            BodyType::Xml => BodyType::Graphql,
+            BodyType::Graphql => BodyType::FormData,
+            BodyType::FormData => BodyType::None,
         };
     }
 

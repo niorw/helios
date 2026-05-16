@@ -22,7 +22,7 @@ impl Storage {
         &self.data_dir
     }
 
-    fn data_file(&self) -> PathBuf {
+    pub fn data_file(&self) -> PathBuf {
         self.data_dir.join(config::DATA_FILE_NAME)
     }
 
