@@ -2,6 +2,32 @@ use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Simple base64 encoding for Basic auth (no external dependency).
+fn base64_encode(input: &str) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes = input.as_bytes();
+    let mut result = String::new();
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
+        result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(triple & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum HttpMethod {
@@ -105,6 +131,42 @@ impl Request {
             url: url.to_string(),
             ..Default::default()
         }
+    }
+
+    /// Export this request as a curl command string.
+    pub fn to_curl(&self) -> String {
+        let mut parts = vec!["curl".to_string()];
+
+        // Method
+        parts.push(format!("-X {}", self.method));
+
+        // Headers (skip disabled)
+        for h in &self.headers {
+            if h.enabled {
+                parts.push(format!("-H '{}: {}'", h.key, h.value));
+            }
+        }
+
+        // Auth headers
+        match &self.auth {
+            Auth::Bearer { token } => {
+                parts.push(format!("-H 'Authorization: Bearer {}'", token));
+            }
+            Auth::Basic { username, password } => {
+                parts.push(format!("-H 'Authorization: Basic {}'", base64_encode(&format!("{}:{}", username, password))));
+            }
+            Auth::None => {}
+        }
+
+        // Body
+        if !self.body.is_empty() {
+            parts.push(format!("--data '{}'", self.body.replace('\'', "'\\''")));
+        }
+
+        // URL (last)
+        parts.push(format!("'{}'", self.url));
+
+        parts.join(" \\\n  ")
     }
 }
 
@@ -381,5 +443,58 @@ mod tests {
         assert_eq!(resp.status, 0);
         assert_eq!(resp.body, "");
         assert_eq!(resp.duration_ms, 0);
+    }
+
+    #[test]
+    fn test_to_curl_get_basic() {
+        let req = Request::new("Test", HttpMethod::GET, "https://example.com/api");
+        let curl = req.to_curl();
+        assert!(curl.contains("curl"), "should start with curl: {}", curl);
+        assert!(curl.contains("https://example.com/api"), "should contain URL: {}", curl);
+        assert!(curl.contains("-X GET") || curl.contains("'GET'"), "should specify GET method: {}", curl);
+    }
+
+    #[test]
+    fn test_to_curl_post_with_body() {
+        let mut req = Request::new("Test", HttpMethod::POST, "https://example.com/api");
+        req.body = r#"{"key":"value"}"#.to_string();
+        req.body_type = BodyType::Json;
+        let curl = req.to_curl();
+        assert!(curl.contains("-X POST"), "should specify POST: {}", curl);
+        assert!(curl.contains(r#"{"key":"value"}"#), "should contain body: {}", curl);
+    }
+
+    #[test]
+    fn test_to_curl_with_headers() {
+        let mut req = Request::new("Test", HttpMethod::GET, "https://example.com");
+        req.headers = vec![
+            KeyValue { key: "Accept".to_string(), value: "application/json".to_string(), enabled: true },
+            KeyValue { key: "X-Custom".to_string(), value: "test".to_string(), enabled: true },
+        ];
+        let curl = req.to_curl();
+        assert!(curl.contains("-H"), "should have -H flag: {}", curl);
+        assert!(curl.contains("Accept: application/json"), "should contain Accept header: {}", curl);
+        assert!(curl.contains("X-Custom: test"), "should contain custom header: {}", curl);
+    }
+
+    #[test]
+    fn test_to_curl_skips_disabled_headers() {
+        let mut req = Request::new("Test", HttpMethod::GET, "https://example.com");
+        req.headers = vec![
+            KeyValue { key: "Accept".to_string(), value: "application/json".to_string(), enabled: true },
+            KeyValue { key: "Disabled".to_string(), value: "skip-me".to_string(), enabled: false },
+        ];
+        let curl = req.to_curl();
+        assert!(curl.contains("Accept"), "should contain enabled header");
+        assert!(!curl.contains("skip-me"), "should NOT contain disabled header");
+    }
+
+    #[test]
+    fn test_to_curl_with_bearer_auth() {
+        let mut req = Request::new("Test", HttpMethod::GET, "https://example.com");
+        req.auth = Auth::Bearer { token: "mytoken123".to_string() };
+        let curl = req.to_curl();
+        assert!(curl.contains("Authorization"), "should have Authorization header: {}", curl);
+        assert!(curl.contains("Bearer mytoken123"), "should contain bearer token: {}", curl);
     }
 }
