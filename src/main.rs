@@ -241,7 +241,7 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
             };
             let col = match fmt {
                 "postman" => export_import::import_postman(&content)?,
-                "openapi" => { /* TODO: openapi module not yet merged */ anyhow::bail!("OpenAPI import not yet available") }
+                "openapi" => openapi::parse_openapi(&content)?,
                 _ => export_import::import_json(&content)?,
             };
             data.collections.push(col);
@@ -299,4 +299,7 @@ fn parse_content_type(s: &str) -> BodyType {
         _ => BodyType::None,
     }
 }
+mod har;
+mod openapi;
+mod report;
 mod scripting;
