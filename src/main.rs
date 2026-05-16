@@ -305,3 +305,4 @@ mod openapi;
 mod report;
 mod scenario;
 mod scripting;
+mod search_tests;
