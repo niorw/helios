@@ -128,6 +128,7 @@ pub fn parse_headers(raw: &[String]) -> Vec<KeyValue> {
 }
 
 /// 对请求中的 URL、Headers、Body 执行变量替换（环境变量 + 内置变量）
+/// 在发送请求前调用，替换 URL、Headers、Body 中的 {{var}} 占位符
 pub fn resolve_request_variables(
     req: &Request,
     env_vars: &std::collections::HashMap<String, String>,
