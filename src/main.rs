@@ -322,6 +322,42 @@ async fn run_cli(cmd: cli::Commands) -> Result<()> {
                 println!("  旧数据文件: {}", legacy);
             }
         }
+        cli::Commands::Vault { action } => {
+            let data_dir = directories::ProjectDirs::from("com", "helios", "Helios")
+                .map(|d| d.data_dir().to_path_buf())
+                .unwrap_or_else(|| std::path::PathBuf::from(".helios"));
+            let mut vs = vault::VaultStorage::load_from_dir(&data_dir)?;
+            match action {
+                cli::VaultAction::Set { key, value } => {
+                    vault::Vault::set(&mut vs, &key, &value)?;
+                    vs.save_to_dir(&data_dir)?;
+                    println!("✓ 密钥 '{}' 已设置", key);
+                }
+                cli::VaultAction::Get { key } => match vault::Vault::get(&vs, &key) {
+                    Some(val) => println!("{}", val),
+                    None => println!("密钥 '{}' 不存在", key),
+                },
+                cli::VaultAction::List => {
+                    let keys = vault::Vault::list(&vs);
+                    if keys.is_empty() {
+                        println!("保险箱为空");
+                    } else {
+                        println!("密钥列表 ({} 个):", keys.len());
+                        for k in &keys {
+                            println!("  • {}", k);
+                        }
+                    }
+                }
+                cli::VaultAction::Delete { key } => {
+                    if vault::Vault::delete(&mut vs, &key) {
+                        vs.save_to_dir(&data_dir)?;
+                        println!("✓ 密钥 '{}' 已删除", key);
+                    } else {
+                        println!("密钥 '{}' 不存在", key);
+                    }
+                }
+            }
+        }
     }
 
     Ok(())

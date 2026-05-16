@@ -76,6 +76,34 @@ pub enum Commands {
         #[arg(long, help = "Preview migration without making changes")]
         dry_run: bool,
     },
+    #[command(about = "Manage secret vault (密钥保险箱)")]
+    Vault {
+        #[command(subcommand)]
+        action: VaultAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum VaultAction {
+    #[command(about = "Set a secret value")]
+    Set {
+        #[arg(help = "Secret key name")]
+        key: String,
+        #[arg(help = "Secret value")]
+        value: String,
+    },
+    #[command(about = "Get a secret value (shows the value)")]
+    Get {
+        #[arg(help = "Secret key name")]
+        key: String,
+    },
+    #[command(about = "List all secret names (does not show values)")]
+    List,
+    #[command(about = "Delete a secret")]
+    Delete {
+        #[arg(help = "Secret key name")]
+        key: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

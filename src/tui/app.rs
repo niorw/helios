@@ -876,6 +876,7 @@ impl App {
     pub fn build_request_with_env(&self, req: &Request) -> Request {
         let vars = self.get_active_env_vars();
         let mut r = req.clone();
+        // 先替换普通环境变量 {{var_name}}
         r.url = crate::utils::replace_variables(&r.url, &vars);
         for h in &mut r.headers {
             h.value = crate::utils::replace_variables(&h.value, &vars);
@@ -884,6 +885,17 @@ impl App {
             p.value = crate::utils::replace_variables(&p.value, &vars);
         }
         r.body = crate::utils::replace_variables(&r.body, &vars);
+        // 再替换 vault 变量 {{vault:key_name}}
+        if let Ok(vstore) = crate::vault::VaultStorage::load_from_dir(self.storage.data_dir()) {
+            r.url = crate::vault::replace_vault_variables_in_text(&r.url, &vstore);
+            for h in &mut r.headers {
+                h.value = crate::vault::replace_vault_variables_in_text(&h.value, &vstore);
+            }
+            for p in &mut r.params {
+                p.value = crate::vault::replace_vault_variables_in_text(&p.value, &vstore);
+            }
+            r.body = crate::vault::replace_vault_variables_in_text(&r.body, &vstore);
+        }
         r
     }
 
