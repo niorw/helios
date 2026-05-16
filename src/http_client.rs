@@ -127,6 +127,30 @@ pub fn parse_headers(raw: &[String]) -> Vec<KeyValue> {
         .collect()
 }
 
+/// 对请求中的 URL、Headers、Body 执行变量替换（环境变量 + 内置变量）
+pub fn resolve_request_variables(
+    req: &Request,
+    env_vars: &std::collections::HashMap<String, String>,
+) -> Request {
+    let mut resolved = req.clone();
+
+    // 先替换环境变量，再替换内置变量
+    resolved.url = crate::utils::replace_variables(&resolved.url, env_vars);
+    resolved.url = crate::utils::resolve_builtin_variables(&resolved.url);
+
+    for h in &mut resolved.headers {
+        h.key = crate::utils::replace_variables(&h.key, env_vars);
+        h.key = crate::utils::resolve_builtin_variables(&h.key);
+        h.value = crate::utils::replace_variables(&h.value, env_vars);
+        h.value = crate::utils::resolve_builtin_variables(&h.value);
+    }
+
+    resolved.body = crate::utils::replace_variables(&resolved.body, env_vars);
+    resolved.body = crate::utils::resolve_builtin_variables(&resolved.body);
+
+    resolved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +208,51 @@ mod tests {
         let raw = vec!["InvalidHeader".to_string()];
         let headers = parse_headers(&raw);
         assert!(headers.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_url_env_variable() {
+        let mut req = Request::default();
+        req.url = "{{base_url}}/users".to_string();
+        let mut vars = HashMap::new();
+        vars.insert("base_url".to_string(), "https://api.example.com".to_string());
+        let resolved = resolve_request_variables(&req, &vars);
+        assert_eq!(resolved.url, "https://api.example.com/users");
+    }
+
+    #[test]
+    fn test_resolve_header_variable() {
+        let mut req = Request::default();
+        req.headers = vec![KeyValue {
+            key: "Authorization".to_string(),
+            value: "Bearer {{token}}".to_string(),
+            enabled: true,
+        }];
+        let mut vars = HashMap::new();
+        vars.insert("token".to_string(), "abc123".to_string());
+        let resolved = resolve_request_variables(&req, &vars);
+        assert_eq!(resolved.headers[0].value, "Bearer abc123");
+    }
+
+    #[test]
+    fn test_resolve_body_variable() {
+        let mut req = Request::default();
+        req.body = r#"{"user":"{{username}}"}"#.to_string();
+        let mut vars = HashMap::new();
+        vars.insert("username".to_string(), "admin".to_string());
+        let resolved = resolve_request_variables(&req, &vars);
+        assert_eq!(resolved.body, r#"{"user":"admin"}"#);
+    }
+
+    #[test]
+    fn test_resolve_builtin_in_url() {
+        let mut req = Request::default();
+        req.url = "https://api.example.com/{{$uuid}}".to_string();
+        let vars = HashMap::new();
+        let resolved = resolve_request_variables(&req, &vars);
+        // URL should no longer contain {{$uuid}}
+        assert!(!resolved.url.contains("{{$uuid}}"));
+        assert!(resolved.url.starts_with("https://api.example.com/"));
     }
 
     #[test]
