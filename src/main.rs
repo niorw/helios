@@ -1,14 +1,22 @@
 mod assertions;
 mod cli;
 mod config;
-mod extraction;
+mod dependency_chain;
 mod diff;
 mod export_import;
+mod extraction;
+mod har;
 mod history;
 mod http_client;
 mod jsonpath;
 mod models;
+mod openapi;
+mod report;
+mod scenario;
+mod scripting;
+mod search_tests;
 mod storage;
+mod tab_tests;
 mod tui;
 mod utils;
 
@@ -299,10 +307,3 @@ fn parse_content_type(s: &str) -> BodyType {
         _ => BodyType::None,
     }
 }
-mod dependency_chain;
-mod har;
-mod openapi;
-mod report;
-mod scenario;
-mod scripting;
-mod search_tests;
