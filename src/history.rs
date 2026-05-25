@@ -137,6 +137,26 @@ impl HistoryManager {
     pub fn get_all_entries(&self) -> Vec<HistoryEntry> {
         self.entries.clone()
     }
+
+    /// 按 HTTP 方法过滤历史记录
+    pub fn filter_by_method(&self, method: &crate::models::HttpMethod) -> Vec<&HistoryEntry> {
+        self.entries
+            .iter()
+            .filter(|e| &e.request.method == method)
+            .collect()
+    }
+
+    /// 按状态码范围过滤历史记录 (如 200..299 为成功, 400.. 为错误)
+    pub fn filter_by_status_range(&self, min: u16, max: u16) -> Vec<&HistoryEntry> {
+        self.entries
+            .iter()
+            .filter(|e| {
+                e.response_status
+                    .map(|s| s >= min && s <= max)
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
 }
 
 /// History storage with file persistence
@@ -344,6 +364,47 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_filter_by_method_get() {
+        let mut manager = HistoryManager::new();
+        manager.add_entry(HistoryEntry::new(create_test_request("https://a.com", HttpMethod::GET)));
+        manager.add_entry(HistoryEntry::new(create_test_request("https://b.com", HttpMethod::POST)));
+        manager.add_entry(HistoryEntry::new(create_test_request("https://c.com", HttpMethod::GET)));
+
+        let get_results = manager.filter_by_method(&HttpMethod::GET);
+        assert_eq!(get_results.len(), 2);
+    }
+
+    #[test]
+    fn test_filter_by_status_success() {
+        let mut manager = HistoryManager::new();
+        let r1 = create_test_request("https://a.com", HttpMethod::GET);
+        let resp_ok = create_test_response(200, "ok");
+        let r2 = create_test_request("https://b.com", HttpMethod::GET);
+        let resp_err = create_test_response(500, "err");
+        manager.add_entry(HistoryEntry::new(r1).with_response(&resp_ok));
+        manager.add_entry(HistoryEntry::new(r2).with_response(&resp_err));
+
+        let success = manager.filter_by_status_range(200, 299);
+        assert_eq!(success.len(), 1);
+        assert_eq!(success[0].response_status, Some(200));
+    }
+
+    #[test]
+    fn test_filter_by_status_error() {
+        let mut manager = HistoryManager::new();
+        let r1 = create_test_request("https://a.com", HttpMethod::GET);
+        let resp_ok = create_test_response(200, "ok");
+        let r2 = create_test_request("https://b.com", HttpMethod::GET);
+        let resp_err = create_test_response(500, "err");
+        manager.add_entry(HistoryEntry::new(r1).with_response(&resp_ok));
+        manager.add_entry(HistoryEntry::new(r2).with_response(&resp_err));
+
+        let errors = manager.filter_by_status_range(400, 599);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].response_status, Some(500));
     }
 
     #[test]
