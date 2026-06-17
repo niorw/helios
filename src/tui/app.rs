@@ -61,8 +61,9 @@ pub enum DialogType {
     NewCollection,
     DeleteConfirm,
     RequestName,
-    History,           // 历史记录弹窗
-    HistorySearch,     // 历史搜索弹窗
+    History,
+    HistorySearch,
+    RenameRequest,
 }
 
 #[derive(Debug, Clone)]
@@ -110,8 +111,7 @@ pub struct App {
 
     pub current_request_source: Option<(usize, usize)>, // (collection_index, request_index)
     pub pending_delete: Option<DeleteTarget>,
-    
-    // History feature
+    pub pending_rename: Option<(usize, usize)>, // (collection_index, request_index)
     pub history_manager: HistoryManager,
     pub history_storage: HistoryStorage,
     pub history_selected: usize,
@@ -161,6 +161,7 @@ impl App {
             pending_window_expiry: 0,
             current_request_source: None,
             pending_delete: None,
+            pending_rename: None,
             history_manager,
             history_storage,
             history_selected: 0,
@@ -1001,6 +1002,50 @@ impl App {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    pub fn rename_selected_request(&mut self) {
+        if self.sidebar_tab != SidebarTab::Collections {
+            return;
+        }
+        let mut idx = 0;
+        for (ci, col) in self.data.collections.iter().enumerate() {
+            if self.sidebar_selected == idx {
+                return; // can't rename a collection header
+            }
+            idx += 1;
+            if self.collection_expanded.contains(&col.id) {
+                for (ri, req) in col.requests.iter().enumerate() {
+                    if self.sidebar_selected == idx {
+                        let current_name = req.name.clone();
+                        self.pending_rename = Some((ci, ri));
+                        self.open_dialog(DialogType::RenameRequest, "Rename request:");
+                        // Set buffer after open_dialog since it clears it
+                        self.dialog_buffer = current_name;
+                        self.dialog_cursor = self.dialog_buffer.len();
+                        return;
+                    }
+                    idx += 1;
+                }
+            }
+        }
+    }
+
+    pub fn confirm_rename_request(&mut self, new_name: &str) {
+        if let Some((ci, ri)) = self.pending_rename.take() {
+            if ci < self.data.collections.len()
+                && ri < self.data.collections[ci].requests.len()
+            {
+                let old_name = self.data.collections[ci].requests[ri].name.clone();
+                self.data.collections[ci].requests[ri].name = new_name.to_string();
+                // Also update current_request if it's the same source
+                if self.current_request_source == Some((ci, ri)) {
+                    self.current_request.name = new_name.to_string();
+                }
+                let _ = self.save();
+                self.set_status(format!("Renamed '{}' -> '{}'", old_name, new_name));
             }
         }
     }

@@ -58,6 +58,16 @@ fn method_color(m: &HttpMethod) -> Color {
     }
 }
 
+pub fn response_time_color(ms: u64) -> Color {
+    if ms < 200 {
+        SUCCESS  // green
+    } else if ms < 1000 {
+        WARN  // yellow
+    } else {
+        ERROR  // red
+    }
+}
+
 // ─── Main Draw ───────────────────────────────────────────────────────
 pub fn draw(f: &mut Frame, app: &mut App) {
     let full = f.size();
@@ -598,7 +608,7 @@ fn draw_response(f: &mut Frame, app: &mut App, area: Rect) {
             ),
             Span::styled("  │  ", Style::default().fg(BORDER)),
             Span::styled("Time ", Style::default().fg(ACCENT)),
-            Span::styled(format!("{}ms", resp.duration_ms), Style::default().fg(TEXT)),
+            Span::styled(format!("{}ms", resp.duration_ms), Style::default().fg(response_time_color(resp.duration_ms))),
             Span::styled("  │  ", Style::default().fg(BORDER)),
             Span::styled("Size ", Style::default().fg(ACCENT)),
             Span::styled(format!("{} bytes", resp.body.len()), Style::default().fg(TEXT)),
@@ -848,6 +858,7 @@ fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
         DialogType::RequestName => " Request Name ",
         DialogType::History => " 历史记录 (History) ",
         DialogType::HistorySearch => " 搜索历史 ",
+        DialogType::RenameRequest => " Rename Request ",
         DialogType::None => return,
     };
     let block = Block::default()
@@ -1075,5 +1086,34 @@ fn format_timestamp(timestamp: DateTime<Local>) -> String {
         format!("{}h ago", diff_secs / 3600)
     } else {
         format!("{}d ago", diff_secs / 86400)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_response_time_green_for_fast() {
+        // <200ms should be green (SUCCESS)
+        assert_eq!(response_time_color(0), SUCCESS);
+        assert_eq!(response_time_color(100), SUCCESS);
+        assert_eq!(response_time_color(199), SUCCESS);
+    }
+
+    #[test]
+    fn test_response_time_yellow_for_moderate() {
+        // 200ms..999ms should be yellow (WARN)
+        assert_eq!(response_time_color(200), WARN);
+        assert_eq!(response_time_color(500), WARN);
+        assert_eq!(response_time_color(999), WARN);
+    }
+
+    #[test]
+    fn test_response_time_red_for_slow() {
+        // >=1000ms should be red (ERROR)
+        assert_eq!(response_time_color(1000), ERROR);
+        assert_eq!(response_time_color(5000), ERROR);
+        assert_eq!(response_time_color(u64::MAX), ERROR);
     }
 }

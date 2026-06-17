@@ -2,12 +2,18 @@ use crate::models::{Auth, BodyType, HttpMethod, KeyValue, Request, Response};
 use anyhow::Result;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
-pub async fn send_request(req: &Request) -> Result<Response> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+pub async fn send_request(req: &Request, cookie_jar: Option<Arc<reqwest::cookie::Jar>>) -> Result<Response> {
+    let mut builder = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30));
+
+    if let Some(jar) = cookie_jar {
+        builder = builder.cookie_provider(jar);
+    }
+
+    let client = builder.build()?;
 
     let method = match req.method {
         HttpMethod::GET => reqwest::Method::GET,
@@ -202,5 +208,22 @@ mod tests {
         assert_eq!(headers.len(), 1);
         assert_eq!(headers[0].key, "X-Empty-Value");
         assert_eq!(headers[0].value, "");
+    }
+
+    #[tokio::test]
+    async fn test_send_request_with_cookie_jar() {
+        let jar = Arc::new(reqwest::cookie::Jar::default());
+        let req = Request::new("Test", HttpMethod::GET, "http://127.0.0.1:1");
+        let result = send_request(&req, Some(jar)).await;
+        // Connection refused is expected - we're testing the API accepts the jar
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_send_request_without_cookie_jar() {
+        let req = Request::new("Test", HttpMethod::GET, "http://127.0.0.1:1");
+        let result = send_request(&req, None).await;
+        // Connection refused is expected - we're testing None still works
+        assert!(result.is_err());
     }
 }

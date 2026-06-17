@@ -25,6 +25,7 @@ pub enum Action {
     SidebarCollapse,
     SidebarLoad,
     SidebarDelete,
+    SidebarRename,
     SidebarTabCollections,
     SidebarTabEnvironments,
 
@@ -158,6 +159,7 @@ fn parse_sidebar(key: KeyEvent, sidebar_tab: SidebarTab) -> Action {
         KeyCode::Left => Action::SidebarCollapse,
         KeyCode::Enter => Action::SidebarLoad,
         KeyCode::Char('d') if sidebar_tab == SidebarTab::Collections => Action::SidebarDelete,
+        KeyCode::Char('n') if sidebar_tab == SidebarTab::Collections => Action::SidebarRename,
         KeyCode::Char('i') if sidebar_tab == SidebarTab::Collections => Action::NewRequest,
         KeyCode::Char('f') if sidebar_tab == SidebarTab::Collections => Action::NewCollection,
         KeyCode::Char('c') => Action::SidebarTabCollections,
@@ -229,7 +231,7 @@ pub fn help_text(
     match active_pane {
         ActivePane::Sidebar => {
             if sidebar_tab == SidebarTab::Collections {
-                "x+1/2/3/4 switch pane │ Enter load │ d delete │ i new req │ f new coll │ →/← expand │ c=coll │ e=env"
+                "x+1/2/3/4 switch pane │ Enter load │ d delete │ n rename │ i new req │ f new coll │ →/← expand │ c=coll │ e=env"
             } else {
                 "x+1/2/3/4 switch pane │ Enter activate │ ↑/↓ navigate │ c=coll │ e=env"
             }

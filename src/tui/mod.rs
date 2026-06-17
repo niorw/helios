@@ -30,7 +30,7 @@ pub async fn run() -> Result<()> {
 
             let req = app.build_request_with_env(&app.current_request);
 
-            match crate::http_client::send_request(&req).await {
+            match crate::http_client::send_request(&req, None).await {
                 Ok(resp) => {
                     app.add_to_history(req, resp.clone());
                     app.response = Some(resp);
