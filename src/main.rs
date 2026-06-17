@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod diff;
 mod export_import;
 mod file_storage;
 mod helios_format;
@@ -7,6 +8,7 @@ mod history;
 mod http_client;
 mod migrate;
 mod models;
+mod openapi;
 mod storage;
 mod tui;
 mod utils;
