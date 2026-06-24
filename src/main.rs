@@ -1,3 +1,4 @@
+mod assertions;
 mod cli;
 mod config;
 mod export_import;
