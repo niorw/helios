@@ -13,6 +13,22 @@ pub fn replace_variables(text: &str, vars: &HashMap<String, String>) -> String {
     result
 }
 
+/// 解析内置动态变量
+pub fn resolve_builtin_variables(text: &str) -> String {
+    let mut result = text.to_string();
+    if result.contains("{{$timestamp}}") {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        result = result.replace("{{$timestamp}}", &ts.to_string());
+    }
+    if result.contains("{{$uuid}}") {
+        result = result.replace("{{$uuid}}", &uuid::Uuid::new_v4().to_string());
+    }
+    result
+}
+
 pub fn format_json(json_str: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(json_str) {
         Ok(v) => serde_json::to_string_pretty(&v).unwrap_or_else(|_| json_str.to_string()),
