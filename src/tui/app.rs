@@ -1005,6 +1005,42 @@ impl App {
         }
     }
 
+    /// Clone the currently selected request in the sidebar
+    pub fn clone_selected_request(&mut self) {
+        if self.sidebar_tab != SidebarTab::Collections {
+            return;
+        }
+        // 先找到选中的请求索引，再做可变操作（避免借用冲突）
+        let mut idx = 0;
+        let mut found: Option<(usize, usize)> = None;
+        for (ci, col) in self.data.collections.iter().enumerate() {
+            if self.sidebar_selected == idx {
+                self.set_status("Select a request to clone");
+                return;
+            }
+            idx += 1;
+            if self.collection_expanded.contains(&col.id) {
+                for (ri, _req) in col.requests.iter().enumerate() {
+                    if self.sidebar_selected == idx {
+                        found = Some((ci, ri));
+                        break;
+                    }
+                    idx += 1;
+                }
+            }
+            if found.is_some() {
+                break;
+            }
+        }
+        if let Some((ci, ri)) = found {
+            let cloned = clone_request(&self.data.collections[ci].requests[ri]);
+            let name = self.data.collections[ci].requests[ri].name.clone();
+            self.data.collections[ci].requests.push(cloned);
+            let _ = self.save();
+            self.set_status(format!("Cloned '{}'", name));
+        }
+    }
+
     pub fn export_collection(&mut self, format: &str) -> Option<String> {
         if let Some(ci) = self.get_selected_collection_index() {
             let col = &self.data.collections[ci];
@@ -1023,5 +1059,88 @@ impl App {
             self.set_status("No collection selected");
         }
         None
+    }
+}
+
+/// Clone a request with a new ID and "(copy)" suffix on the name.
+pub fn clone_request(req: &Request) -> Request {
+    Request {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: format!("{} (copy)", req.name),
+        method: req.method.clone(),
+        url: req.url.clone(),
+        headers: req.headers.clone(),
+        params: req.params.clone(),
+        body: req.body.clone(),
+        body_type: req.body_type.clone(),
+        auth: req.auth.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{Auth, BodyType, HttpMethod, KeyValue};
+
+    fn make_request(name: &str, method: HttpMethod, url: &str) -> Request {
+        Request {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            method,
+            url: url.to_string(),
+            headers: vec![KeyValue {
+                key: "Accept".to_string(),
+                value: "application/json".to_string(),
+                enabled: true,
+            }],
+            params: vec![],
+            body: String::new(),
+            body_type: BodyType::None,
+            auth: Auth::None,
+        }
+    }
+
+    #[test]
+    fn test_clone_request_creates_duplicate_with_new_id() {
+        let original = make_request("My Request", HttpMethod::GET, "https://example.com");
+        let cloned = clone_request(&original);
+        assert_ne!(cloned.id, original.id, "cloned request must have a new unique ID");
+    }
+
+    #[test]
+    fn test_clone_request_appends_copy_suffix() {
+        let original = make_request("My Request", HttpMethod::GET, "https://example.com");
+        let cloned = clone_request(&original);
+        assert!(
+            cloned.name.contains("copy") || cloned.name.contains("Copy"),
+            "cloned name should indicate it's a copy, got: '{}'",
+            cloned.name
+        );
+    }
+
+    #[test]
+    fn test_clone_request_preserves_method_and_url() {
+        let original = make_request("POST Data", HttpMethod::POST, "https://api.example.com/data");
+        let cloned = clone_request(&original);
+        assert_eq!(cloned.method, HttpMethod::POST);
+        assert_eq!(cloned.url, "https://api.example.com/data");
+    }
+
+    #[test]
+    fn test_clone_request_preserves_headers() {
+        let original = make_request("With Headers", HttpMethod::GET, "https://example.com");
+        let cloned = clone_request(&original);
+        assert_eq!(cloned.headers.len(), 1);
+        assert_eq!(cloned.headers[0].key, "Accept");
+    }
+
+    #[test]
+    fn test_clone_request_preserves_body() {
+        let mut original = make_request("POST Body", HttpMethod::POST, "https://example.com");
+        original.body = r#"{"key":"value"}"#.to_string();
+        original.body_type = BodyType::Json;
+        let cloned = clone_request(&original);
+        assert_eq!(cloned.body, r#"{"key":"value"}"#);
+        assert_eq!(cloned.body_type, BodyType::Json);
     }
 }
