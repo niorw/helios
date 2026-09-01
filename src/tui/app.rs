@@ -836,13 +836,17 @@ impl App {
         let vars = self.get_active_env_vars();
         let mut r = req.clone();
         r.url = crate::utils::replace_variables(&r.url, &vars);
+        r.url = crate::utils::resolve_builtin_variables(&r.url);
         for h in &mut r.headers {
             h.value = crate::utils::replace_variables(&h.value, &vars);
+            h.value = crate::utils::resolve_builtin_variables(&h.value);
         }
         for p in &mut r.params {
             p.value = crate::utils::replace_variables(&p.value, &vars);
+            p.value = crate::utils::resolve_builtin_variables(&p.value);
         }
         r.body = crate::utils::replace_variables(&r.body, &vars);
+        r.body = crate::utils::resolve_builtin_variables(&r.body);
         r
     }
 
